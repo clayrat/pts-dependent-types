@@ -1,0 +1,3 @@
+[submodule "vendor/strictness-pcf"]
+	path = vendor/strictness-pcf
+	url = git@github.com:clayrat/strictness-pcf.git

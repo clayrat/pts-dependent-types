@@ -1,0 +1,93 @@
+# Dependent types via pure type systems, in Rocq
+
+The executable companion to the first lecture on dependent types. It is built
+around two algorithms:
+
+1. **A type checker parameterized by a PTS specification.** One program with
+   a table of sorts, axioms and Π-rules checks both the output of the PCF
+   translation in System U⁻ and the minimal predicative MLTT with Π,
+   universes and the primitives Void, Unit, Bool.
+2. **A translation of PCF into U⁻.** General recursion is encoded by the
+   looping combinator of Geuvers–Verkoelen (after Hurkens' paradox);
+   typing and the observable numeric result, including the strictness of
+   numeric operations, must be preserved.
+
+The main demonstration: the same annotated looping combinator is accepted by
+the U⁻ table and rejected by the predicative one, because quantifying over
+Type_0 lifts the product to Type_1.
+
+Definitions and algorithms are written in Rocq and will be extracted to
+OCaml, with a thin OCaml shell for printing, traces and demos. The lecture
+plan is [plan-dependent-types.md](plan-dependent-types.md); the
+implementation plan, stages and readiness criteria are in
+[plan-deptypes-impl.md](plan-deptypes-impl.md).
+
+## Status
+
+The base definitions and bounded evaluator exist (stages 0–2 of the
+implementation plan). The checker and translation are not implemented yet.
+
+| Component | Status |
+|---|---|
+| unified syntax with de Bruijn indices, renaming, substitution | defined, tested on examples |
+| PTS specifications; λ∗, U, U⁻, predicative hierarchy | defined, closedness carried in the type |
+| β + annotation erasure + ι reduction, conversion (no η) | defined |
+| normal-order strategy | defined, determinism proved |
+| declarative typing parameterized by a specification | defined |
+| bidirectional judgments of the annotated kernel | defined |
+| source PCF from strictness-pcf | wired as a submodule, builds |
+| bounded normal-order evaluation and conversion | implemented; step correspondence and soundness of successful equality proved |
+| bidirectional checker, extraction | not started |
+| looping combinator, numeral encodings, PCF translation | not started |
+
+## Building
+
+Tested with Rocq 9.1.1 and OCaml 4.14.2.
+
+```sh
+git submodule update --init   # fetch the pinned strictness-pcf
+make                          # builds the needed PCF modules, then DepTypes
+make clean
+```
+
+`_CoqProject` maps `vendor/strictness-pcf/theories` to `PCF` and `theories/`
+to `DepTypes`. Only the PCF modules the translation needs are built, so the
+strictness analyser and its Equations dependency are not required.
+
+## Files
+
+| File | What's in it |
+|------|--------------|
+| `Common/Result.v` | The result monad with `let*` and its inversion lemmas (ported). |
+| `Common/Traced.v` | Result with an event log, for checker traces (ported). |
+| `PTS/Syntax.v` | Sorts (∗, □, △, Type_i); terms: sort, variable, Π, unannotated λ, application, annotation, and the primitives Void, Unit, Bool with eliminators taking an explicit result family. Renaming, substitution, `subst1`, `arrow`, free variables, `map_sorts`, contexts and `lookup`. |
+| `PTS/Spec.v` | A functional PTS table `pts_table` (computable `spec_sort`, `spec_axiom`, `spec_rule`, plus `spec_prim` switching on the MLTT primitives) and `spec`, a table packed with the proof that it mentions only its own sorts. |
+| `PTS/Reduction.v` | One-step reduction (β, annotation erasure, ι, congruences), `red`, conversion `≡`, normal forms. A conversion relation, not a strategy. |
+| `PTS/NormalOrder.v` | The evaluator's strategy: deterministic leftmost-outermost `⇝ₙ`, normal and neutral forms `nf`/`ne`; `nstep` is a sub-relation of `red1`, normal forms do not step, and the step is deterministic. A raw term without a step may be `stuck` rather than normal, so the evaluator answers normal form, stuck, or out of fuel. |
+| `PTS/Eval.v` | Bounded full normalization with traces and weak-head reduction; conversion accepts syntactically equal terms at once and otherwise compares normal forms. `classify` finds the next normal-order step, or tells neutral, normal and stuck terms apart, in one structural pass, and corresponds exactly to `nstep`; normalization results, weak-head results (each weak-head step is a normal-order step) and accepted equalities have soundness proofs; normalization is complete: a normal form reachable by normal order is found with enough fuel, and more fuel does not change it. Timeouts and stuck terms have separate results; `compare` reports stuckness only for syntactically different terms, so the checker passes it validated types only. The converse for `ConvDifferent` and progress of well-typed terms remain open. |
+| `PTS/Typing.v` | Declarative `wf_ctx` and `S ;; Γ ⊢ t ∈ A` parameterized by a specification; every typable sort is a sort of the system. Types unannotated β-redexes, so it is not the reference for completeness. |
+| `PTS/Bidir.v` | The annotated kernel: `S ;; Γ ⊢ t ⇑ A` and `S ;; Γ ⊢ t ⇓ A`, the algorithmic rules the checker must be sound and complete for. Admissible inputs `bwf_ctx` and `btype` (a sort of the system, or a term synthesizing a sort), and the explicit premise `normalizing_types` of completeness. Synthesis is a relation, so completeness of `infer` is stated up to conversion and for sufficient fuel. |
+| `Configs/Finite.v` | λ∗, U and U⁻. |
+| `Configs/Predicative.v` | Type_i : Type_(i+1) with the `max` rule, with and without primitives; the renaming of ∗, □, △ to Type_0, Type_1, Type_2. |
+| `PCFTranslation/Source.v` | The source PCF from the submodule, under qualified names. |
+| `Tests.v` | Substitution without capture, open terms, PTS tables, normal order, bounded evaluation and traces, conversion without η, declarative versus annotated typing, and admissibility of expected types. |
+
+## Planned layout
+
+```text
+theories/
+  Common/          results, errors, traces
+  PTS/             syntax, substitution, typing, reduction, checker
+  Configs/         U⁻ and the predicative hierarchy
+  SystemU/         looping combinator and encodings
+  PCFTranslation/  name bridge, translation, type preservation, adequacy
+  MLTT/            primitives and dependent eliminators
+  Contracts.v      proved interfaces and their assumptions
+  Examples.v
+  Tests.v
+extraction/        Extract.v, generated/ (never edited), pretty.ml, main.ml
+reference/         optional readable OCaml version
+tests/             regressions and differential tests
+```
+
+Ports from sibling projects are recorded in [PORTING.md](PORTING.md).

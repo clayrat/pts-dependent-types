@@ -1,0 +1,28 @@
+-Q vendor/strictness-pcf/theories PCF
+-Q theories DepTypes
+-docroot DepTypes
+
+# Source language: the modules of the pinned strictness-pcf that the
+# translation needs (the strictness analyser is not built).
+vendor/strictness-pcf/theories/Ty.v
+vendor/strictness-pcf/theories/Syntax.v
+vendor/strictness-pcf/theories/Context.v
+vendor/strictness-pcf/theories/Typing.v
+vendor/strictness-pcf/theories/Checker.v
+vendor/strictness-pcf/theories/Subst.v
+vendor/strictness-pcf/theories/OperationalSemantics.v
+vendor/strictness-pcf/theories/Safety.v
+
+theories/Common/Result.v
+theories/Common/Traced.v
+theories/PTS/Syntax.v
+theories/PTS/Spec.v
+theories/PTS/Reduction.v
+theories/PTS/NormalOrder.v
+theories/PTS/Eval.v
+theories/PTS/Typing.v
+theories/PTS/Bidir.v
+theories/Configs/Finite.v
+theories/Configs/Predicative.v
+theories/PCFTranslation/Source.v
+theories/Tests.v
