@@ -19,6 +19,7 @@ rocq_mcp_cache_*.v
 # Extraction and OCaml build output (extraction/generated/ is rebuilt by make)
 /extraction/generated/
 /extraction/_build/
+/reference/_build/
 *.cmi
 *.cmo
 *.cmx

@@ -6,8 +6,9 @@
 
 From Stdlib Require Import List Relations.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir.
+From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir Check.
 From DepTypes.Configs Require Import Finite Predicative.
+From DepTypes Require Import Examples.
 
 (** ** Substitution *)
 
@@ -181,12 +182,12 @@ Example whnf_elim_void_scrutinee :
 Proof. reflexivity. Qed.
 
 Example conv_has_no_eta :
-  compare 0 (Var 0) (Lam (App (Var 1) (Var 0))) = ConvDifferent.
+  convert 0 (Var 0) (Lam (App (Var 1) (Var 0))) = ConvDifferent.
 Proof. reflexivity. Qed.
 
 Example conv_timeout_and_stuck :
-  compare 0 (App (Lam (Var 0)) Tt) Tt = ConvOutOfFuel /\
-  compare 1 (App Tt (Ann Tt Unit)) Tt = ConvStuck.
+  convert 0 (App (Lam (Var 0)) Tt) Tt = ConvOutOfFuel /\
+  convert 1 (App Tt (Ann Tt Unit)) Tt = ConvStuck.
 Proof. split; reflexivity. Qed.
 
 (** ** Declarative typing versus the annotated kernel *)
@@ -292,17 +293,15 @@ Proof. intros T H. inversion H; subst. discriminate. Qed.
 Example tri_btype : btype system_u_minus [] (Srt Tri).
 Proof. left. now exists Tri. Qed.
 
-(** The raw term Ω = (λx. x x) (λx. x x) has no normal form.  It does
+(** The raw term Ω of Examples.v has no normal form.  It does
     not synthesize in the annotated kernel, for any specification and
     context ([omega_not_synth]: its head is an unannotated λ).  Whether it
     is declaratively typable is not settled here.  So it illustrates the
-    evaluator and the fast path of [compare], not the normalization
+    evaluator and the fast path of [convert], not the normalization
     premise of PTS.Bidir.
     Compared with itself it is equal without any fuel; with an annotation
     on one side, the terms are convertible but only normalization could
     tell, and it runs out of fuel. *)
-Definition self_app : term := Lam (App (Var 0) (Var 0)).
-Definition omega : term := App self_app self_app.
 
 Example omega_not_synth : forall S G A, ~ S ;; G ⊢ omega ⇑ A.
 Proof.
@@ -310,18 +309,175 @@ Proof.
   match goal with Hf : synth _ _ (Lam _) _ |- _ => inversion Hf end.
 Qed.
 
-Example compare_omega_syntactic : compare 0 omega omega = ConvEqual.
+Example convert_omega_syntactic : convert 0 omega omega = ConvEqual omega.
 Proof. reflexivity. Qed.
 
-Example compare_omega_annotated :
-  compare 50 omega (Ann omega (Srt Star)) = ConvOutOfFuel.
+Example convert_omega_annotated :
+  convert 50 omega (Ann omega (Srt Star)) = ConvOutOfFuel.
 Proof. vm_compute. reflexivity. Qed.
 
-(** The fast path of [compare] does not diagnose stuckness: the stuck raw
+(** The fast path of [convert] does not diagnose stuckness: the stuck raw
     term [App Tt (Ann Tt Unit)] is stuck for [normalize], yet equal to
-    itself for [compare].  A syntactically different partner exposes it. *)
-Example compare_identical_stuck :
+    itself for [convert].  A syntactically different partner exposes it. *)
+Example convert_identical_stuck :
   let x := App Tt (Ann Tt Unit) in
-  normalize 1 x = StuckTerm x /\ compare 1 x x = ConvEqual /\
-  compare 1 x (App Tt Tt) = ConvStuck.
+  normalize 1 x = StuckTerm x /\ convert 1 x x = ConvEqual x /\
+  convert 1 x (App Tt Tt) = ConvStuck.
 Proof. vm_compute. auto. Qed.
+
+(** ** The checker
+
+    One program, several specifications.  [ΠA:∗. A → A] and the
+    polymorphic identity in U⁻; the same type after renaming the sorts is
+    one universe too high for the predicative hierarchy. *)
+
+
+Example check_id_u_minus : snd (run_infer system_u_minus 100 [] id_tm) = Accepted id_ty.
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_id_ty_star : snd (run_infer system_u_minus 100 [] id_ty) = Accepted (Srt Star).
+Proof. vm_compute. reflexivity. Qed.
+
+(** The lecture trace of [id A x] with [A : ∗, x : A]: the context is
+    validated entry by entry, then the term is typed.  The type of the
+    function unfolds to a Π, the argument is checked against the domain,
+    and only then substituted into the codomain. *)
+Example check_id_applied :
+  run_infer system_u_minus 100 [Var 0; Srt Star] (App (App id_tm (Var 1)) (Var 0)) =
+  ([EvCtxEntry 0 (Srt Star); EvAxiom Star Box;
+    EvCtxEntry 1 (Var 0);
+    EvTerm (App (App id_tm (Var 1)) (Var 0));
+    EvAxiom Star Box; EvRule Star Star Star; EvRule Box Star Star;
+    EvUnfoldPi (Lam (Lam (Var 0))) id_ty (Srt Star) (Pi (Var 0) (Var 1));
+    EvUnfoldPi (Lam (Var 0)) (Pi (Var 0) (Var 1)) (Var 0) (Var 1);
+    EvConv (Var 1) (Var 1) (Var 1);
+    EvUnfoldPi id_tm id_ty (Srt Star) (Pi (Var 0) (Var 1));
+    EvConv (Srt Star) (Srt Star) (Srt Star); EvArg (Var 1) (Srt Star);
+    EvSubst (Pi (Var 0) (Var 1)) (Var 1) (Pi (Var 1) (Var 2));
+    EvUnfoldPi (App id_tm (Var 1)) (Pi (Var 1) (Var 2)) (Var 1) (Var 2);
+    EvConv (Var 1) (Var 1) (Var 1); EvArg (Var 0) (Var 1);
+    EvSubst (Var 2) (Var 0) (Var 1)],
+   Accepted (Var 1)).
+Proof. vm_compute. reflexivity. Qed.
+
+(** Types do not depend on terms in U⁻: the rule (∗, □) is missing. *)
+Example check_no_star_box :
+  snd (run_infer system_u_minus 100 [Srt Star] (Pi (Var 0) (Srt Star))) = Rejected (ENoRule (Pi (Var 0) (Srt Star)) Star Box).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_id_ty_univ1 :
+  snd (run_infer predicative 100 [] (map_sorts u_to_univ id_ty)) = Accepted (Srt (Univ 1)).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_id_ty_not_univ0 :
+  snd (run_check predicative 100 [] (map_sorts u_to_univ id_ty) (Srt (Univ 0))) =
+  Rejected (EMismatch (map_sorts u_to_univ id_ty) (Srt (Univ 0)) (Srt (Univ 1))).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_top_sort : snd (run_infer system_u_minus 100 [] (Srt Tri)) = Rejected (ETopSort Tri).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_foreign_sort :
+  snd (run_infer system_u_minus 100 [] (Srt (Univ 0))) = Rejected (ENotInSystem (Univ 0)).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_no_primitives_u_minus :
+  snd (run_infer system_u_minus 100 [] Bool) = Rejected (ENoPrimitives Bool).
+Proof. vm_compute. reflexivity. Qed.
+
+(** Large elimination with [type_family] of Examples.v. *)
+
+Example check_large_elim_true :
+  snd (run_check predicative 100 [] Tt (ElimBool type_family Unit Bool BTrue)) = Accepted tt.
+Proof. vm_compute. reflexivity. Qed.
+
+(** The lecture trace of large elimination: validating the expected type
+    records the family into the universe Type_1, both branches compared
+    with the computed [type_family true] and [type_family false], and the
+    expected type unfolded to the sort Type_0; then [tt] is checked, its
+    type [Unit] and the expected type both reaching [Unit]. *)
+Example check_large_elim_trace :
+  run_check predicative 100 [] Tt (ElimBool type_family Unit Bool BTrue) =
+  ([EvExpected (ElimBool type_family Unit Bool BTrue);
+    EvAxiom (Univ 1) (Univ 2); EvRule (Univ 0) (Univ 2) (Univ 2);
+    EvUnfoldPi (Lam (Srt (Univ 0))) (Pi Bool (Srt (Univ 1))) Bool (Srt (Univ 1));
+    EvAxiom (Univ 0) (Univ 1);
+    EvConv (Srt (Univ 1)) (Srt (Univ 1)) (Srt (Univ 1));
+    EvUnfoldPi type_family (Pi Bool (Srt (Univ 1))) Bool (Srt (Univ 1));
+    EvFamily type_family Bool (Univ 1);
+    EvConv (Srt (Univ 0)) (App type_family BTrue) (Srt (Univ 0));
+    EvConv (Srt (Univ 0)) (App type_family BFalse) (Srt (Univ 0));
+    EvConv Bool Bool Bool;
+    EvUnfoldSort (ElimBool type_family Unit Bool BTrue) (App type_family BTrue) (Univ 0);
+    EvTerm Tt;
+    EvConv Unit (ElimBool type_family Unit Bool BTrue) Unit],
+   Accepted tt).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_large_elim_false :
+  snd (run_check predicative 100 [] BTrue (ElimBool type_family Unit Bool BFalse)) = Accepted tt.
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_wrong_branch :
+  snd (run_infer predicative 100 [] (ElimBool type_family Unit Tt BTrue)) =
+  Rejected (EMismatch Tt (App type_family BFalse) Unit).
+Proof. vm_compute. reflexivity. Qed.
+
+(** With a free boolean the computed type stays neutral. *)
+Example check_neutral_type :
+  snd (run_check predicative 100 [Bool] Tt (ElimBool type_family Unit Bool (Var 0))) =
+  Rejected (EMismatch Tt (ElimBool type_family Unit Bool (Var 0)) Unit).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_bad_family :
+  snd (run_infer predicative 100 []
+         (ElimBool (Ann (Lam Bool) (Pi Unit (Srt (Univ 0)))) BTrue BTrue BTrue)) =
+  Rejected (EBadFamily (Ann (Lam Bool) (Pi Unit (Srt (Univ 0)))) Bool Unit).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_lam_needs_annotation :
+  snd (run_infer predicative 100 [] (App (Lam (Var 0)) BTrue)) = Rejected (ECannotInfer (Lam (Var 0))).
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_annotated_redex :
+  snd (run_infer predicative 100 [] (App (Ann (Lam (Var 0)) (Pi Bool Bool)) BTrue)) = Accepted Bool.
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_not_a_function :
+  snd (run_infer predicative 100 [] (App BTrue Tt)) = Rejected (ENotAPi BTrue Bool).
+Proof. vm_compute. reflexivity. Qed.
+
+(** Without fuel the expected type cannot even be validated: its branch
+    [Unit] is compared with the computed [type_family true].  The answer
+    is undecided, not a rejection. *)
+Example check_out_of_fuel :
+  snd (run_check predicative 0 [] Tt (ElimBool type_family Unit Bool BTrue)) = Undecided Unit.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ** Validation of inputs *)
+
+(** The annotated kernel derives [true ⇓ Ann Bool (Var 0)] in the empty
+    context (chk_unbound_annotation); the checker rejects the expected
+    type first. *)
+Example check_unbound_annotation :
+  snd (run_check predicative 100 [] BTrue (Ann Bool (Var 0))) = Rejected (EUnboundVar 0).
+Proof. vm_compute. reflexivity. Qed.
+
+(** The top sort △ has no type, yet it is an admissible expected type. *)
+Example check_box_tri : snd (run_check system_u_minus 100 [] (Srt Box) (Srt Tri)) = Accepted tt.
+Proof. vm_compute. reflexivity. Qed.
+
+Example check_expected_foreign_sort :
+  snd (run_check system_u_minus 100 [] (Srt Star) (Srt (Univ 1))) = Rejected (ENotInSystem (Univ 1)).
+Proof. vm_compute. reflexivity. Qed.
+
+(** A context entry must be a type: [true] is a term of type Bool. *)
+Example check_ctx_not_a_type :
+  snd (run_infer predicative 100 [BTrue] (Var 0)) = Rejected (ENotASort BTrue Bool).
+Proof. vm_compute. reflexivity. Qed.
+
+(** Each entry is checked in the context behind it: [Var 0] has nothing
+    to refer to as the last entry. *)
+Example check_ctx_unbound :
+  snd (run_infer system_u_minus 100 [Srt Star; Var 0] (Var 0)) = Rejected (EUnboundVar 0).
+Proof. vm_compute. reflexivity. Qed.

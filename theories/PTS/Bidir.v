@@ -7,7 +7,8 @@
     reference for its soundness and completeness.  They are stricter than
     the declarative typing of PTS.Typing: a λ only checks, so a β-redex
     [(λ. b) u] needs an annotation on the λ; the family of an eliminator
-    must synthesize.  The declarative system types such terms without
+    must synthesize; with the primitives switched off, no primitive
+    former, constructor or eliminator is accepted.  The declarative system types such terms without
     annotations; it is reached from this kernel by soundness, and from
     unannotated terms only after annotations are inserted.
 
@@ -104,16 +105,19 @@ Section Bidir.
       spec_prim S = Some s0 -> synth G BTrue Bool
   | S_False : forall G s0,
       spec_prim S = Some s0 -> synth G BFalse Bool
-  | S_ElimVoid : forall G C e TC D K s,
+  | S_ElimVoid : forall G C e TC D K s s0,
+      spec_prim S = Some s0 ->
       synth G C TC -> TC ⇝* Pi D K -> D ≡ Void -> K ⇝* Srt s ->
       chk G e Void ->
       synth G (ElimVoid C e) (App C e)
-  | S_ElimUnit : forall G C c u TC D K s,
+  | S_ElimUnit : forall G C c u TC D K s s0,
+      spec_prim S = Some s0 ->
       synth G C TC -> TC ⇝* Pi D K -> D ≡ Unit -> K ⇝* Srt s ->
       chk G c (App C Tt) ->
       chk G u Unit ->
       synth G (ElimUnit C c u) (App C u)
-  | S_ElimBool : forall G C t f b TC D K s,
+  | S_ElimBool : forall G C t f b TC D K s s0,
+      spec_prim S = Some s0 ->
       synth G C TC -> TC ⇝* Pi D K -> D ≡ Bool -> K ⇝* Srt s ->
       chk G t (App C BTrue) ->
       chk G f (App C BFalse) ->

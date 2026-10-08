@@ -25,7 +25,10 @@ implementation plan, stages and readiness criteria are in
 ## Status
 
 The base definitions and bounded evaluator exist (stages 0–2 of the
-implementation plan). The checker and translation are not implemented yet.
+implementation plan); the checker of stage 3 runs, is tested on examples and
+is proved sound against the annotated kernel, and is extracted to OCaml with
+demonstrations; stage 3 is complete. The translation is
+not implemented yet.
 
 | Component | Status |
 |---|---|
@@ -37,18 +40,36 @@ implementation plan). The checker and translation are not implemented yet.
 | bidirectional judgments of the annotated kernel | defined |
 | source PCF from strictness-pcf | wired as a submodule, builds |
 | bounded normal-order evaluation and conversion | implemented; step correspondence and soundness of successful equality proved |
-| bidirectional checker, extraction | not started |
+| bidirectional checker `infer` / `check` with primitives, errors and traces | implemented, tested; soundness against the annotated kernel proved |
+| validation of the context and expected type (`bwf_ctx`, `btype`) | implemented, tested, soundness proved |
+| OCaml extraction, printer with names, demonstrations, regression tests | done |
+| independent readable OCaml reference and differential tests | implemented in `reference/` |
 | looping combinator, numeral encodings, PCF translation | not started |
 
 ## Building
 
-Tested with Rocq 9.1.1 and OCaml 4.14.2.
+Tested with Rocq 9.1.1, OCaml 4.14.2 and dune 3.
 
 ```sh
 git submodule update --init   # fetch the pinned strictness-pcf
 make                          # builds the needed PCF modules, then DepTypes
+make demo                     # extracts the checker and runs the lecture demos
+make test                     # extraction regressions and reference comparisons
+make check                    # the Rocq build and the OCaml tests
+make -C reference run         # runs the standalone native OCaml examples
 make clean
 ```
+
+`extraction/Extract.v` writes `extraction/generated/deptypes.ml`, which is
+rebuilt by `make` and never edited by hand; `pretty.ml` prints terms with
+names, errors and trace events, `main.ml` runs the demonstrations and
+`regress.ml` the tests.
+
+[`reference/`](reference/README.md) contains a separate, hand-written OCaml
+version of the executable kernel, like the native reference in
+`strictness-pcf`. Its differential tests compare complete answers and traces
+with the extract; proofs about the Rocq code do not transfer to the native
+implementation.
 
 `_CoqProject` maps `vendor/strictness-pcf/theories` to `PCF` and `theories/`
 to `DepTypes`. Only the PCF modules the translation needs are built, so the
@@ -64,13 +85,16 @@ strictness analyser and its Equations dependency are not required.
 | `PTS/Spec.v` | A functional PTS table `pts_table` (computable `spec_sort`, `spec_axiom`, `spec_rule`, plus `spec_prim` switching on the MLTT primitives) and `spec`, a table packed with the proof that it mentions only its own sorts. |
 | `PTS/Reduction.v` | One-step reduction (β, annotation erasure, ι, congruences), `red`, conversion `≡`, normal forms. A conversion relation, not a strategy. |
 | `PTS/NormalOrder.v` | The evaluator's strategy: deterministic leftmost-outermost `⇝ₙ`, normal and neutral forms `nf`/`ne`; `nstep` is a sub-relation of `red1`, normal forms do not step, and the step is deterministic. A raw term without a step may be `stuck` rather than normal, so the evaluator answers normal form, stuck, or out of fuel. |
-| `PTS/Eval.v` | Bounded full normalization with traces and weak-head reduction; conversion accepts syntactically equal terms at once and otherwise compares normal forms. `classify` finds the next normal-order step, or tells neutral, normal and stuck terms apart, in one structural pass, and corresponds exactly to `nstep`; normalization results, weak-head results (each weak-head step is a normal-order step) and accepted equalities have soundness proofs; normalization is complete: a normal form reachable by normal order is found with enough fuel, and more fuel does not change it. Timeouts and stuck terms have separate results; `compare` reports stuckness only for syntactically different terms, so the checker passes it validated types only. The converse for `ConvDifferent` and progress of well-typed terms remain open. |
+| `PTS/Eval.v` | Bounded full normalization with traces and weak-head reduction; conversion accepts syntactically equal terms at once and otherwise compares normal forms; `ConvEqual v` reports the common form `v` both sides reach by normal order. `classify` finds the next normal-order step, or tells neutral, normal and stuck terms apart, in one structural pass, and corresponds exactly to `nstep`; it and `head_step` share the root contractions in `contract`; normalization results, weak-head results (each weak-head step is a normal-order step) and accepted equalities have soundness proofs; normalization is complete: a normal form reachable by normal order is found with enough fuel, and more fuel does not change it. Timeouts and stuck terms have separate results; `convert` reports stuckness only for syntactically different terms, so the checker passes it validated types only. The converse for `ConvDifferent` and progress of well-typed terms remain open. |
 | `PTS/Typing.v` | Declarative `wf_ctx` and `S ;; Γ ⊢ t ∈ A` parameterized by a specification; every typable sort is a sort of the system. Types unannotated β-redexes, so it is not the reference for completeness. |
-| `PTS/Bidir.v` | The annotated kernel: `S ;; Γ ⊢ t ⇑ A` and `S ;; Γ ⊢ t ⇓ A`, the algorithmic rules the checker must be sound and complete for. Admissible inputs `bwf_ctx` and `btype` (a sort of the system, or a term synthesizing a sort), and the explicit premise `normalizing_types` of completeness. Synthesis is a relation, so completeness of `infer` is stated up to conversion and for sufficient fuel. |
+| `PTS/Bidir.v` | The annotated kernel: `S ;; Γ ⊢ t ⇑ A` and `S ;; Γ ⊢ t ⇓ A`, the algorithmic rules the checker must be sound and complete for. Admissible inputs `bwf_ctx` and `btype` (a sort of the system, or a term synthesizing a sort), and the explicit premise `normalizing_types` of completeness. Synthesis is a relation, so completeness of `infer` is stated up to conversion and for sufficient fuel. With the primitives off, no primitive syntax is accepted. |
+| `PTS/Check.v` | The checker: one structural function `tc` for both modes, with `infer` and `check` as wrappers; fuel only for `whnf` and `convert` on types; three answers: `Accepted`, `Rejected` with a diagnostic (the subterm with its expected and inferred types, or a Π-type with its missing sort rule), and `Undecided` with the term whose typing ran out of fuel; a trace with phase markers (context entries, expected type, term) and events for axioms, rules, unfoldings to a sort or a Π (with the type before unfolding), argument checks, substitutions, conversions (with the common form) and result families of eliminators (with their sort). The entry points `run_infer` and `run_check` first validate the context (`check_ctx`) and the expected type (`check_type`). |
+| `PTS/CheckSound.v` | Soundness of the checker against PTS.Bidir, for every specification and any fuel: `tc_sound` (synthesis and checking), `check_ctx_sound`, `check_type_sound`, and for the entry points `run_infer_sound` and `run_check_sound` (an `Accepted` answer gives `bwf_ctx`, `btype` and the judgment). |
 | `Configs/Finite.v` | λ∗, U and U⁻. |
 | `Configs/Predicative.v` | Type_i : Type_(i+1) with the `max` rule, with and without primitives; the renaming of ∗, □, △ to Type_0, Type_1, Type_2. |
 | `PCFTranslation/Source.v` | The source PCF from the submodule, under qualified names. |
-| `Tests.v` | Substitution without capture, open terms, PTS tables, normal order, bounded evaluation and traces, conversion without η, declarative versus annotated typing, and admissibility of expected types. |
+| `Examples.v` | The lecture examples shared by the tests and the OCaml demos: the polymorphic identity and its application, the forbidden rule (∗,□), large elimination, the raw Ω. |
+| `Tests.v` | Substitution without capture, open terms, PTS tables, normal order, bounded evaluation and traces, conversion without η, declarative versus annotated typing, admissibility of expected types, and the checker on U⁻ and the predicative hierarchy (lecture traces of `id A x` and of large elimination, the forbidden rule (∗,□), the universe level of ΠA:Type₀. A → A, large elimination, and each kind of error), and validation of inputs (an unbound annotation in the expected type, the top sort △ accepted, ill-formed contexts). |
 
 ## Planned layout
 
@@ -86,7 +110,7 @@ theories/
   Examples.v
   Tests.v
 extraction/        Extract.v, generated/ (never edited), pretty.ml, main.ml
-reference/         optional readable OCaml version
+reference/         standalone readable OCaml version and differential tests
 tests/             regressions and differential tests
 ```
 

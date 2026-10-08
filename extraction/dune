@@ -1,0 +1,25 @@
+; generated/ holds the output of Extract.v; it is rebuilt by make and never
+; edited by hand.
+(copy_files generated/deptypes.{ml,mli})
+
+(library
+ (name deptypes)
+ (wrapped false)
+ (modules deptypes)
+ (flags (:standard -w -a)))
+
+(library
+ (name deptypes_pretty)
+ (wrapped false)
+ (modules pretty)
+ (libraries deptypes))
+
+(executable
+ (name main)
+ (modules main)
+ (libraries deptypes deptypes_pretty))
+
+(test
+ (name regress)
+ (modules regress)
+ (libraries deptypes deptypes_pretty))

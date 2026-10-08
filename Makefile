@@ -1,6 +1,6 @@
 COQMAKEFILE ?= coq_makefile
 
-.PHONY: all rocq vendor clean
+.PHONY: all rocq extract demo test check clean
 all: rocq
 
 vendor/strictness-pcf/theories/Ty.v:
@@ -13,6 +13,21 @@ Makefile.coq: _CoqProject
 rocq: vendor/strictness-pcf/theories/Ty.v Makefile.coq
 	$(MAKE) -f Makefile.coq
 
+# The extracted checker: OCaml demonstrations and regression tests.
+extract:
+	$(MAKE) -C extraction extract
+
+demo:
+	$(MAKE) -C extraction run
+
+test:
+	$(MAKE) -C extraction test
+	$(MAKE) -C reference test
+
+check: rocq test
+
 clean:
 	@if test -f Makefile.coq; then $(MAKE) -f Makefile.coq clean; fi
+	$(MAKE) -C extraction clean
+	$(MAKE) -C reference clean
 	rm -f Makefile.coq Makefile.coq.conf .Makefile.coq.d

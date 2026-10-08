@@ -22,7 +22,10 @@ theories/PTS/NormalOrder.v
 theories/PTS/Eval.v
 theories/PTS/Typing.v
 theories/PTS/Bidir.v
+theories/PTS/Check.v
+theories/PTS/CheckSound.v
 theories/Configs/Finite.v
 theories/Configs/Predicative.v
 theories/PCFTranslation/Source.v
+theories/Examples.v
 theories/Tests.v
