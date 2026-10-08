@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List Relations.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir Check.
+From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir Check Named.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes Require Import Examples.
 
@@ -303,17 +303,17 @@ Proof. left. now exists Tri. Qed.
     on one side, the terms are convertible but only normalization could
     tell, and it runs out of fuel. *)
 
-Example omega_not_synth : forall S G A, ~ S ;; G ⊢ omega ⇑ A.
+Example omega_not_synth : forall S G A, ~ S ;; G ⊢ raw_omega ⇑ A.
 Proof.
-  intros S G A H. unfold omega, self_app in H. inversion H; subst.
+  intros S G A H. unfold raw_omega, self_app in H. inversion H; subst.
   match goal with Hf : synth _ _ (Lam _) _ |- _ => inversion Hf end.
 Qed.
 
-Example convert_omega_syntactic : convert 0 omega omega = ConvEqual omega.
+Example convert_omega_syntactic : convert 0 raw_omega raw_omega = ConvEqual raw_omega.
 Proof. reflexivity. Qed.
 
 Example convert_omega_annotated :
-  convert 50 omega (Ann omega (Srt Star)) = ConvOutOfFuel.
+  convert 50 raw_omega (Ann raw_omega (Srt Star)) = ConvOutOfFuel.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The fast path of [convert] does not diagnose stuckness: the stuck raw
@@ -481,3 +481,42 @@ Proof. vm_compute. reflexivity. Qed.
 Example check_ctx_unbound :
   snd (run_infer system_u_minus 100 [Srt Star; Var 0] (Var 0)) = Rejected (EUnboundVar 0).
 Proof. vm_compute. reflexivity. Qed.
+
+(** ** Named terms *)
+
+Section Named.
+  Import Stdlib.Strings.String DepTypes.Common.Result.
+  Open Scope string_scope.
+  Open Scope nterm_scope.
+
+  Example named_id :
+    resolve [] ((λ "A", λ "x", "x") ∷ (Π "A" : ⋆, "A" ~> "A")) = Ok id_tm.
+  Proof. reflexivity. Qed.
+
+  (** A name refers to its nearest binder; an outer one stays reachable
+      under a binder of another name. *)
+  Example named_shadowing :
+    resolve [] (λ "x", λ "x", "x") = Ok (Lam (Lam (Var 0))) /\
+    resolve [] (λ "x", λ "y", "x") = Ok (Lam (Lam (Var 1))).
+  Proof. split; reflexivity. Qed.
+
+  (** The anonymous binder of an arrow shifts the outer names. *)
+  Example named_arrow :
+    resolve ["A"] ("A" ~> "A") = Ok (Pi (Var 0) (Var 1)).
+  Proof. reflexivity. Qed.
+
+  Example named_unbound : resolve ["x"] ("x" "y") = Err "y".
+  Proof. reflexivity. Qed.
+
+  Example named_anon_unreachable : resolve ["A"] ("A" ~> anon) = Err anon.
+  Proof. reflexivity. Qed.
+
+  Example named_context :
+    resolve_ctx [("x", NVar "A"); ("A", ⋆)] = Ok (["x"; "A"], id_applied_ctx).
+  Proof. reflexivity. Qed.
+
+  Example named_id_applied :
+    resolve ["x"; "A"] (((λ "A", λ "x", "x") ∷ (Π "A" : ⋆, "A" ~> "A")) "A" "x")
+    = Ok id_applied.
+  Proof. reflexivity. Qed.
+End Named.

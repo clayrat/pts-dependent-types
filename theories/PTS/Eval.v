@@ -399,3 +399,36 @@ Proof.
   intros fuel t u v H. destruct (convert_equal_reaches _ _ _ _ H) as [Ht Hu].
   apply conv_trans with v; [ | apply conv_sym ]; apply red_conv, nsteps_red; assumption.
 Qed.
+
+(** ** Joinability up to annotations
+
+    Two terms without normal forms cannot be compared by [convert].  For
+    them, [joinable fuel t u] looks for a common reduct in the two bounded
+    normal-order traces, up to erasure of annotations.  A positive answer
+    is a conversion ([joinable_sound]); a negative one says nothing. *)
+
+Lemma normalize_trace_reaches : forall fuel t u,
+  In u (fst (normalize_trace fuel t)) -> t ⇝ₙ* u.
+Proof.
+  induction fuel as [|fuel IH]; intros t u H; cbn [normalize_trace] in H;
+    pose proof (classify_spec t) as Hs; destruct (classify t) as [v| | |]; cbn in Hs.
+  all: try (destruct H as [<- | []]; apply rt_refl).
+  destruct (normalize_trace fuel v) as [trace r] eqn:ER.
+  destruct H as [<- | H]; [apply rt_refl | ].
+  eapply rt_trans; [apply rt_step, Hs | apply IH; rewrite ER; exact H].
+Qed.
+
+Definition joinable (fuel : nat) (t u : term) : bool :=
+  let us := map erase_ann (fst (normalize_trace fuel u)) in
+  existsb (fun t' => existsb (term_eqb (erase_ann t')) us) (fst (normalize_trace fuel t)).
+
+Lemma joinable_sound : forall fuel t u, joinable fuel t u = true -> t ≡ u.
+Proof.
+  intros fuel t u H. unfold joinable in H.
+  apply existsb_exists in H as (t' & Ht' & H).
+  apply existsb_exists in H as (w & Hw & E).
+  apply term_eqb_eq in E. apply in_map_iff in Hw as (u' & <- & Hu').
+  apply conv_trans with t'; [apply red_conv, nsteps_red, (normalize_trace_reaches fuel), Ht' | ].
+  apply conv_trans with u'; [apply erase_conv, E | ].
+  apply conv_sym, red_conv, nsteps_red, (normalize_trace_reaches fuel), Hu'.
+Qed.

@@ -35,7 +35,7 @@ let () =
     "accepted";
   expect "no fuel" (answer_unit (run_check predicative 0 [] Tt large_elim_ty))
     "undecided: out of fuel while typing Unit";
-  expect "Ω" (pp_eval_result (normalize 5 omega)) "out of fuel at (λx. x x) (λx. x x)";
+  expect "Ω" (pp_eval_result (normalize 5 raw_omega)) "out of fuel at (λx. x x) (λx. x x)";
   expect "bad family"
     (answer_term []
        (run_infer predicative 100 []
@@ -43,4 +43,33 @@ let () =
     "rejected: result family ((λx. Bool) : Unit → Type₀) is over Unit, expected over Bool";
   expect "context entry"
     (pp_event ~ctx:id_applied_ctx (EvCtxEntry (1, Var 0))) "context entry x : A";
+  (* The term builder, used from OCaml: names in, de Bruijn terms out. *)
+  let named_id =
+    NAnn (NLam ("A", NLam ("x", NVar "x")), NPi ("A", NSrt Star, NPi (anon, NVar "A", NVar "A")))
+  in
+  let resolved = function Ok t -> pp_term t | Err x -> "unbound " ^ x in
+  expect "named id" (resolved (resolve [] named_id)) (pp_term id_tm);
+  expect "named unbound" (resolved (resolve [ "x" ] (NApp (NVar "x", NVar "y")))) "unbound y";
+  expect "named context"
+    (match resolve_ctx [ ("x", NVar "A"); ("A", NSrt Star) ] with
+     | Ok (names, g) -> String.concat "," names ^ " ⊢ " ^ pp_ctx g
+     | Err x -> "unbound " ^ x)
+    "x,A ⊢ A : ∗, x : A";
+  (* The looping combinator. *)
+  expect "L₀ in U⁻"
+    (answer_term [] (run_infer system_u_minus looping_fuel [] (looping 0)))
+    "accepted: ΠA:∗. (A → A) → A";
+  expect "L₀ predicative"
+    (match snd (run_infer pure_predicative looping_fuel [] (map_sorts u_to_univ (looping 0))) with
+     | Rejected (EMismatch (_, Srt (Univ 0), Srt (Univ 2))) -> "Type₂, expected Type₀"
+     | a -> pp_answer pp_term a)
+    "Type₂, expected Type₀";
+  expect "L unfolds"
+    (String.concat ","
+       (List.map
+          (fun n ->
+            string_of_bool
+              (unfolds_to unfolding_fuel (looping_applied n) (Var 0) (looping_applied (n + 1))))
+          [ 0; 1 ]))
+    "true,true";
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

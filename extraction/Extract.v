@@ -5,11 +5,13 @@
     examples into generated/deptypes.ml.  Proofs and relations stay in
     Rocq; the extracted functions are the ones the soundness theorems are
     about.  Natural numbers (fuel, de Bruijn indices, universe levels) are
-    OCaml ints, booleans are OCaml bools. *)
+    OCaml ints, booleans are OCaml bools, and the names of the term
+    builder (PTS.Named) are OCaml strings. *)
 
-From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt.
-From DepTypes.PTS Require Import Syntax Spec Eval Check.
+From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNativeString.
+From DepTypes.PTS Require Import Syntax Named Spec Eval Check.
 From DepTypes.Configs Require Import Finite Predicative.
+From DepTypes.SystemU Require Import Looping.
 From DepTypes Require Import Examples.
 
 Extraction Language OCaml.
@@ -27,8 +29,10 @@ Extract Inlined Constant PeanoNat.Nat.ltb => "(<)".
 
 Extraction "deptypes.ml"
   term_eqb sort_eqb rename lift subst subst1 arrow free_in map_sorts lookup
+  anon resolve resolve_ctx
   lambda_star system_u system_u_minus predicative pure_predicative u_to_univ
   classify normalize_trace normalize whnf convert
   infer check run_infer run_check
   id_ty id_tm id_applied_ctx id_applied star_box_ctx star_box
-  type_family large_elim_ty self_app omega.
+  type_family large_elim_ty self_app raw_omega
+  joinable looping looping_ty looping_applied looping_fuel unfolding_fuel unfolds_to.

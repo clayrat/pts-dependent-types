@@ -158,7 +158,7 @@ let () =
     "sort", Srt Star; "var", Var 0; "pi", id_ty;
     "identity", identity; "applied", id_applied;
     "beta", annotated_beta; "stuck", raw_stuck;
-    "omega", omega; "unit elim", ElimUnit (Lam Unit, Tt, Tt);
+    "omega", raw_omega; "unit elim", ElimUnit (Lam Unit, Tt, Tt);
     "bool elim", ElimBool (type_family, Unit, Bool, BTrue);
     "neutral bool", neutral_bool;
     "void elim", ElimVoid (Void, Ann (Var 0, Void));
@@ -218,4 +218,16 @@ let () =
     BTrue (Ann (Bool, Var 0));
   check_check "top expected" system_u_minus N.system_u_minus 100 []
     (Srt Box) (Srt Tri);
+  (* The looping combinator: complete traces in U⁻ and up to the failure
+     in the predicative hierarchy, and the normal-order unfolding. *)
+  List.iter (fun n ->
+    check_infer (Printf.sprintf "looping %d/U-" n) system_u_minus N.system_u_minus
+      looping_fuel [] (looping n)) [0; 1];
+  check_infer "looping/predicative" pure_predicative N.pure_predicative looping_fuel []
+    (map_sorts u_to_univ (looping 0));
+  check_eval "looping applied" (looping_applied 0);
+  List.iter (fun fuel ->
+    equal (Printf.sprintf "looping unfolding/%d" fuel)
+      (List.map term_to_extracted (fst (N.normalize_trace fuel (term_of_extracted (looping_applied 0)))))
+      (fst (X.normalize_trace fuel (looping_applied 0)))) [11; 30];
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions

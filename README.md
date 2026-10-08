@@ -13,10 +13,11 @@ around two algorithms:
    numeric operations, must be preserved.
 
 The main demonstration: the same annotated looping combinator is accepted by
-the U⁻ table and rejected by the predicative one, because quantifying over
-Type_0 lifts the product to Type_1.
+the U⁻ table and rejected by the predicative one. In the latter, the body of
+`induct` quantifies over `U : Type₂`, so it has sort `Type₂` where its
+annotation expects `Type₀`.
 
-Definitions and algorithms are written in Rocq and will be extracted to
+Definitions and algorithms are written in Rocq and extracted to
 OCaml, with a thin OCaml shell for printing, traces and demos. The lecture
 plan is [plan-dependent-types.md](plan-dependent-types.md); the
 implementation plan, stages and readiness criteria are in
@@ -27,12 +28,14 @@ implementation plan, stages and readiness criteria are in
 The base definitions and bounded evaluator exist (stages 0–2 of the
 implementation plan); the checker of stage 3 runs, is tested on examples and
 is proved sound against the annotated kernel, and is extracted to OCaml with
-demonstrations; stage 3 is complete. The translation is
+demonstrations; stage 3 is complete. The looping combinator of stage 4 is
+built, typed in U⁻ and rejected in the predicative hierarchy. The translation is
 not implemented yet.
 
 | Component | Status |
 |---|---|
 | unified syntax with de Bruijn indices, renaming, substitution | defined, tested on examples |
+| term builder from named syntax (Rocq and extracted OCaml) | implemented, tested |
 | PTS specifications; λ∗, U, U⁻, predicative hierarchy | defined, closedness carried in the type |
 | β + annotation erasure + ι reduction, conversion (no η) | defined |
 | normal-order strategy | defined, determinism proved |
@@ -44,7 +47,8 @@ not implemented yet.
 | validation of the context and expected type (`bwf_ctx`, `btype`) | implemented, tested, soundness proved |
 | OCaml extraction, printer with names, demonstrations, regression tests | done |
 | independent readable OCaml reference and differential tests | implemented in `reference/` |
-| looping combinator, numeral encodings, PCF translation | not started |
+| looping combinator `L₀` and family `Lₙ` from Hurkens' paradox | typed in U⁻ (n ≤ 3), unfolding `Lₙ β f =β f (Lₙ₊₁ β f)` certified (n ≤ 2), predicative rejection recorded |
+| numeral encodings, PCF translation | not started |
 
 ## Building
 
@@ -82,10 +86,11 @@ strictness analyser and its Equations dependency are not required.
 | `Common/Result.v` | The result monad with `let*` and its inversion lemmas (ported). |
 | `Common/Traced.v` | Result with an event log, for checker traces (ported). |
 | `PTS/Syntax.v` | Sorts (∗, □, △, Type_i); terms: sort, variable, Π, unannotated λ, application, annotation, and the primitives Void, Unit, Bool with eliminators taking an explicit result family. Renaming, substitution, `subst1`, `arrow`, free variables, `map_sorts`, contexts and `lookup`. |
+| `PTS/Named.v` | A builder of de Bruijn terms from named ones: `nterm` with a name at each binder, `resolve` and `resolve_ctx` with the first unbound name as error, and notations (`λ x, b`, `Π x : A, B`, `A ~> B`, `t ∷ A`, string literals as variables, juxtaposition as application). Unverified; its output is trusted only once the checker accepts it. Extracted, so OCaml builds terms by name too. |
 | `PTS/Spec.v` | A functional PTS table `pts_table` (computable `spec_sort`, `spec_axiom`, `spec_rule`, plus `spec_prim` switching on the MLTT primitives) and `spec`, a table packed with the proof that it mentions only its own sorts. |
-| `PTS/Reduction.v` | One-step reduction (β, annotation erasure, ι, congruences), `red`, conversion `≡`, normal forms. A conversion relation, not a strategy. |
+| `PTS/Reduction.v` | One-step reduction (β, annotation erasure, ι, congruences), `red`, conversion `≡`, normal forms. A conversion relation, not a strategy. Multi-step congruences, `erase_ann` with `red_erase` (a term reduces to its annotation-free version) and `erase_conv`. |
 | `PTS/NormalOrder.v` | The evaluator's strategy: deterministic leftmost-outermost `⇝ₙ`, normal and neutral forms `nf`/`ne`; `nstep` is a sub-relation of `red1`, normal forms do not step, and the step is deterministic. A raw term without a step may be `stuck` rather than normal, so the evaluator answers normal form, stuck, or out of fuel. |
-| `PTS/Eval.v` | Bounded full normalization with traces and weak-head reduction; conversion accepts syntactically equal terms at once and otherwise compares normal forms; `ConvEqual v` reports the common form `v` both sides reach by normal order. `classify` finds the next normal-order step, or tells neutral, normal and stuck terms apart, in one structural pass, and corresponds exactly to `nstep`; it and `head_step` share the root contractions in `contract`; normalization results, weak-head results (each weak-head step is a normal-order step) and accepted equalities have soundness proofs; normalization is complete: a normal form reachable by normal order is found with enough fuel, and more fuel does not change it. Timeouts and stuck terms have separate results; `convert` reports stuckness only for syntactically different terms, so the checker passes it validated types only. The converse for `ConvDifferent` and progress of well-typed terms remain open. |
+| `PTS/Eval.v` | Bounded full normalization with traces and weak-head reduction; conversion accepts syntactically equal terms at once and otherwise compares normal forms; `ConvEqual v` reports the common form `v` both sides reach by normal order. `classify` finds the next normal-order step, or tells neutral, normal and stuck terms apart, in one structural pass, and corresponds exactly to `nstep`; it and `head_step` share the root contractions in `contract`; normalization results, weak-head results (each weak-head step is a normal-order step) and accepted equalities have soundness proofs; normalization is complete: a normal form reachable by normal order is found with enough fuel, and more fuel does not change it. Timeouts and stuck terms have separate results; `convert` reports stuckness only for syntactically different terms, so the checker passes it validated types only. The converse for `ConvDifferent` and progress of well-typed terms remain open. `joinable` finds a common reduct up to annotations in two bounded traces, for terms without normal forms; `joinable_sound` makes a positive answer a conversion. |
 | `PTS/Typing.v` | Declarative `wf_ctx` and `S ;; Γ ⊢ t ∈ A` parameterized by a specification; every typable sort is a sort of the system. Types unannotated β-redexes, so it is not the reference for completeness. |
 | `PTS/Bidir.v` | The annotated kernel: `S ;; Γ ⊢ t ⇑ A` and `S ;; Γ ⊢ t ⇓ A`, the algorithmic rules the checker must be sound and complete for. Admissible inputs `bwf_ctx` and `btype` (a sort of the system, or a term synthesizing a sort), and the explicit premise `normalizing_types` of completeness. Synthesis is a relation, so completeness of `infer` is stated up to conversion and for sufficient fuel. With the primitives off, no primitive syntax is accepted. |
 | `PTS/Check.v` | The checker: one structural function `tc` for both modes, with `infer` and `check` as wrappers; fuel only for `whnf` and `convert` on types; three answers: `Accepted`, `Rejected` with a diagnostic (the subterm with its expected and inferred types, or a Π-type with its missing sort rule), and `Undecided` with the term whose typing ran out of fuel; a trace with phase markers (context entries, expected type, term) and events for axioms, rules, unfoldings to a sort or a Π (with the type before unfolding), argument checks, substitutions, conversions (with the common form) and result families of eliminators (with their sort). The entry points `run_infer` and `run_check` first validate the context (`check_ctx`) and the expected type (`check_type`). |
@@ -93,7 +98,8 @@ strictness analyser and its Equations dependency are not required.
 | `Configs/Finite.v` | λ∗, U and U⁻. |
 | `Configs/Predicative.v` | Type_i : Type_(i+1) with the `max` rule, with and without primitives; the renaming of ∗, □, △ to Type_0, Type_1, Type_2. |
 | `PCFTranslation/Source.v` | The source PCF from the submodule, under qualified names. |
-| `Examples.v` | The lecture examples shared by the tests and the OCaml demos: the polymorphic identity and its application, the forbidden rule (∗,□), large elimination, the raw Ω. |
+| `SystemU/Looping.v` | Hurkens' paradox in λU⁻ after Geuvers–Verkoelen (TLCA version, §4), written with the builder: `V`, `U`, `sb`, `le`, `induct`, `WF`, `I`, `omega`, `lemma`, `lemma2`, `paradox`, the looping combinator `L₀ : Πβ:∗. (β → β) → β` and the family `Lₙ` of their Lemma 3. `looping_typed` (n ≤ 3) from checker runs and `run_infer_sound`; `looping_unfolds` (n ≤ 2) from bounded evaluation, `whnf_reduces` and `joinable_sound`; `looping_predicative_rejected` records where the predicative checker fails: the body of `induct` quantifies over `U : Type₂`. |
+| `Examples.v` | The lecture examples shared by the tests and the OCaml demos: the polymorphic identity and its application, the forbidden rule (∗,□), large elimination, the raw Ω. The raw Ω is `raw_omega`, apart from the `omega` of Hurkens' paradox. |
 | `Tests.v` | Substitution without capture, open terms, PTS tables, normal order, bounded evaluation and traces, conversion without η, declarative versus annotated typing, admissibility of expected types, and the checker on U⁻ and the predicative hierarchy (lecture traces of `id A x` and of large elimination, the forbidden rule (∗,□), the universe level of ΠA:Type₀. A → A, large elimination, and each kind of error), and validation of inputs (an unbound annotation in the expected type, the top sort △ accepted, ill-formed contexts). |
 
 ## Planned layout

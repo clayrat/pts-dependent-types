@@ -74,6 +74,113 @@ Proof.
   - eapply rst_trans; eassumption.
 Qed.
 
+(** ** Congruence of reduction and conversion *)
+
+(** One-step congruence in a position lifts to multi-step reduction. *)
+Lemma red_ctx : forall (C : term -> term),
+    (forall a b, a ⇝ b -> C a ⇝ C b) -> forall a b, a ⇝* b -> C a ⇝* C b.
+Proof.
+  intros C HC a b H. induction H.
+  - apply rt_step, HC, H.
+  - apply rt_refl.
+  - eapply rt_trans; eassumption.
+Qed.
+
+Lemma conv_app_arg : forall f a b, a ≡ b -> App f a ≡ App f b.
+Proof.
+  intros f a b H. induction H.
+  - apply rst_step, R_AppArg, H.
+  - apply rst_refl.
+  - now apply rst_sym.
+  - eapply rst_trans; eassumption.
+Qed.
+
+(** ** Erasure of annotations
+
+    [erase_ann t] removes every annotation [(u : A)], keeping [u].  Since
+    erasing an annotation is a reduction step, every term reduces to its
+    erasure: terms with equal erasures are convertible.  The erasure of a
+    term is its domain-free version, as in Geuvers–Verkoelen §4.2. *)
+
+Fixpoint erase_ann (t : term) : term :=
+  match t with
+  | Srt s => Srt s
+  | Var n => Var n
+  | Pi A B => Pi (erase_ann A) (erase_ann B)
+  | Lam b => Lam (erase_ann b)
+  | App f a => App (erase_ann f) (erase_ann a)
+  | Ann u _ => erase_ann u
+  | Void => Void
+  | ElimVoid C e => ElimVoid (erase_ann C) (erase_ann e)
+  | Unit => Unit
+  | Tt => Tt
+  | ElimUnit C c u => ElimUnit (erase_ann C) (erase_ann c) (erase_ann u)
+  | Bool => Bool
+  | BTrue => BTrue
+  | BFalse => BFalse
+  | ElimBool C t f b =>
+      ElimBool (erase_ann C) (erase_ann t) (erase_ann f) (erase_ann b)
+  end.
+
+(** Multi-step congruences, one per former with subterms. *)
+
+Ltac red_cong C H :=
+  eapply rt_trans;
+  [ apply (red_ctx C); [intros ? ? ?; constructor; assumption | exact H] | cbv beta ].
+
+Lemma red_pi : forall A A' B B', A ⇝* A' -> B ⇝* B' -> Pi A B ⇝* Pi A' B'.
+Proof.
+  intros A A' B B' HA HB.
+  red_cong (fun a => Pi a B) HA. red_cong (fun b => Pi A' b) HB. apply rt_refl.
+Qed.
+
+Lemma red_lam : forall b b', b ⇝* b' -> Lam b ⇝* Lam b'.
+Proof. intros b b' H. red_cong Lam H. apply rt_refl. Qed.
+
+Lemma red_app : forall f f' a a', f ⇝* f' -> a ⇝* a' -> App f a ⇝* App f' a'.
+Proof.
+  intros f f' a a' Hf Ha.
+  red_cong (fun x => App x a) Hf. red_cong (fun x => App f' x) Ha. apply rt_refl.
+Qed.
+
+Lemma red_elim_void : forall C C' e e', C ⇝* C' -> e ⇝* e' -> ElimVoid C e ⇝* ElimVoid C' e'.
+Proof.
+  intros C C' e e' HC He.
+  red_cong (fun x => ElimVoid x e) HC. red_cong (fun x => ElimVoid C' x) He. apply rt_refl.
+Qed.
+
+Lemma red_elim_unit : forall C C' c c' u u',
+    C ⇝* C' -> c ⇝* c' -> u ⇝* u' -> ElimUnit C c u ⇝* ElimUnit C' c' u'.
+Proof.
+  intros C C' c c' u u' HC Hc Hu.
+  red_cong (fun x => ElimUnit x c u) HC. red_cong (fun x => ElimUnit C' x u) Hc.
+  red_cong (fun x => ElimUnit C' c' x) Hu. apply rt_refl.
+Qed.
+
+Lemma red_elim_bool : forall C C' t t' f f' b b',
+    C ⇝* C' -> t ⇝* t' -> f ⇝* f' -> b ⇝* b' -> ElimBool C t f b ⇝* ElimBool C' t' f' b'.
+Proof.
+  intros C C' t t' f f' b b' HC Ht Hf Hb.
+  red_cong (fun x => ElimBool x t f b) HC. red_cong (fun x => ElimBool C' x f b) Ht.
+  red_cong (fun x => ElimBool C' t' x b) Hf. red_cong (fun x => ElimBool C' t' f' x) Hb.
+  apply rt_refl.
+Qed.
+
+Lemma red_erase : forall t, t ⇝* erase_ann t.
+Proof.
+  induction t; cbn [erase_ann]; try apply rt_refl.
+  all: first
+    [ eapply rt_trans; [apply rt_step, R_Ann | assumption]
+    | auto using red_pi, red_lam, red_app, red_elim_void, red_elim_unit, red_elim_bool ].
+Qed.
+
+Lemma erase_conv : forall t u, erase_ann t = erase_ann u -> t ≡ u.
+Proof.
+  intros t u H. apply conv_trans with (erase_ann t).
+  - apply red_conv, red_erase.
+  - rewrite H. apply conv_sym, red_conv, red_erase.
+Qed.
+
 (** ** Normal forms
 
     A term without a one-step reduct. *)

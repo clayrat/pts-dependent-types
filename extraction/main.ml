@@ -32,11 +32,32 @@ let demo_check title spec g t ty =
   print_trace g events;
   print_endline (pp_answer ~depth (fun () -> "") answer)
 
-let demo_normalize title steps t =
+let demo_normalize ?(names = []) ?(depth = depth) title steps t =
   header title;
   let trace, result = normalize_trace steps t in
-  List.iteri (fun i u -> Printf.printf "  %d. %s\n" i (pp_term ~depth u)) trace;
-  print_endline (pp_eval_result ~depth result)
+  List.iteri (fun i u -> Printf.printf "  %d. %s\n" i (pp_term ~depth ~names u)) trace;
+  print_endline (pp_eval_result ~depth ~names result)
+
+(* The looping combinator: its trace in U⁻ has thousands of events, so
+   only their number is printed. *)
+let demo_looping () =
+  header "U⁻: the looping combinator L₀ from Hurkens' paradox";
+  let events, answer = run_infer system_u_minus looping_fuel [] (looping 0) in
+  Printf.printf "  ⊢ L₀ ⇑ ?   (%d trace events)\n" (List.length events);
+  print_endline (pp_answer (pp_term ~depth) answer);
+  header "Predicative: L₀ with ∗, □, △ read as Type₀, Type₁, Type₂";
+  let events, answer =
+    run_infer pure_predicative looping_fuel [] (map_sorts u_to_univ (looping 0)) in
+  Printf.printf "  ⊢ L₀ ⇑ ?   (%d trace events before the failure)\n" (List.length events);
+  print_endline (pp_answer ~depth:6 (pp_term ~depth) answer);
+  demo_normalize ~names:[ "f"; "β" ] ~depth:4
+    "U⁻: L₀ β f reaches f M by normal order (β : ∗, f : β → β)" 11 (looping_applied 0);
+  header "U⁻: M meets L₁ β f, and so on: Lₙ β f =β f (Lₙ₊₁ β f)";
+  List.iter
+    (fun n ->
+      Printf.printf "  n = %d: %b\n" n
+        (unfolds_to unfolding_fuel (looping_applied n) (Var 0) (looping_applied (n + 1))))
+    [ 0; 1; 2 ]
 
 let () =
   print_endline "In events, #k is the free variable with de Bruijn index k.";
@@ -51,4 +72,5 @@ let () =
     (map_sorts u_to_univ id_ty) (Srt (Univ 0));
   demo_check "Predicative: large elimination computes the type Unit" predicative []
     Tt large_elim_ty;
-  demo_normalize "Raw Ω under normal order, 3 steps" 3 omega
+  demo_normalize "Raw Ω under normal order, 3 steps" 3 raw_omega;
+  demo_looping ()

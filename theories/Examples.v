@@ -35,4 +35,4 @@ Definition large_elim_ty : term := ElimBool type_family Unit Bool BTrue.
 (** Ω = (λx. x x) (λx. x x), without a normal form; it does not
     synthesize in the annotated kernel (Tests.v, [omega_not_synth]). *)
 Definition self_app : term := Lam (App (Var 0) (Var 0)).
-Definition omega : term := App self_app self_app.
+Definition raw_omega : term := App self_app self_app.
