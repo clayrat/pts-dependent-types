@@ -3,6 +3,7 @@
 
 module X = Deptypes
 module N = Pts_native
+module L = Looping
 
 let sort_of_extracted = function
   | X.Star -> N.Star | X.Box -> N.Box | X.Tri -> N.Tri | X.Univ i -> N.Univ i
@@ -129,8 +130,8 @@ let check_check name xspec nspec fuel gamma term expected =
   let native = List.map event_to_extracted events, answer_to_extracted Fun.id result in
   equal name native (X.run_check xspec fuel gamma term expected)
 
-let check_eval name term =
-  let native = term_of_extracted term in
+let check_eval ?native name term =
+  let native = match native with Some t -> t | None -> term_of_extracted term in
   equal (name ^ "/classify") (shape_to_extracted (N.classify native)) (X.classify term);
   List.iter (fun fuel ->
     let trace, result = N.normalize_trace fuel native in
@@ -218,16 +219,26 @@ let () =
     BTrue (Ann (Bool, Var 0));
   check_check "top expected" system_u_minus N.system_u_minus 100 []
     (Srt Box) (Srt Tri);
-  (* The looping combinator: complete traces in U⁻ and up to the failure
-     in the predicative hierarchy, and the normal-order unfolding. *)
+  (* The native construction is independent of the extracted builder. *)
+  equal "looping/type" (term_to_extracted L.looping_ty) looping_ty;
   List.iter (fun n ->
-    check_infer (Printf.sprintf "looping %d/U-" n) system_u_minus N.system_u_minus
-      looping_fuel [] (looping n)) [0; 1];
+    equal (Printf.sprintf "looping/term/%d" n)
+      (term_to_extracted (L.looping n)) (looping n)) [0; 1; 2; 3];
+  List.iter (fun n ->
+    equal (Printf.sprintf "looping/applied/%d" n)
+      (term_to_extracted (L.looping_applied n)) (looping_applied n)) [0; 1; 2];
+  (* Complete native checker traces in U⁻ and up to the predicative
+     failure, then the normal-order unfolding. *)
+  List.iter (fun n ->
+    let events, answer = N.run_infer N.system_u_minus looping_fuel [] (L.looping n) in
+    equal (Printf.sprintf "looping %d/U-" n)
+      (List.map event_to_extracted events, answer_to_extracted term_to_extracted answer)
+      (X.run_infer system_u_minus looping_fuel [] (looping n))) [0; 1];
   check_infer "looping/predicative" pure_predicative N.pure_predicative looping_fuel []
     (map_sorts u_to_univ (looping 0));
-  check_eval "looping applied" (looping_applied 0);
+  check_eval ~native:(L.looping_applied 0) "looping applied" (looping_applied 0);
   List.iter (fun fuel ->
     equal (Printf.sprintf "looping unfolding/%d" fuel)
-      (List.map term_to_extracted (fst (N.normalize_trace fuel (term_of_extracted (looping_applied 0)))))
+      (List.map term_to_extracted (fst (N.normalize_trace fuel (L.looping_applied 0))))
       (fst (X.normalize_trace fuel (looping_applied 0)))) [11; 30];
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions
