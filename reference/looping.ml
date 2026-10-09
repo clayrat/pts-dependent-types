@@ -13,6 +13,10 @@ type named =
   | Apply of named * named
   | Annotate of named * named
   | Arrow of named * named        (* binds nothing *)
+  | Const of P.term               (* a closed atom: a primitive type or constructor *)
+  | ElimVoid of named * named
+  | ElimUnit of named * named * named
+  | ElimBool of named * named * named * named
 
 let star = Sort P.Star
 let box = Sort P.Box
@@ -52,6 +56,22 @@ let rec resolve names = function
       let* body = resolve names body in
       let* ty = resolve names ty in
       Ok (P.Ann (body, ty))
+  | Const t -> Ok t
+  | ElimVoid (c, e) ->
+      let* c = resolve names c in
+      let* e = resolve names e in
+      Ok (P.ElimVoid (c, e))
+  | ElimUnit (c, branch, u) ->
+      let* c = resolve names c in
+      let* branch = resolve names branch in
+      let* u = resolve names u in
+      Ok (P.ElimUnit (c, branch, u))
+  | ElimBool (c, yes, no, b) ->
+      let* c = resolve names c in
+      let* yes = resolve names yes in
+      let* no = resolve names no in
+      let* b = resolve names b in
+      Ok (P.ElimBool (c, yes, no, b))
   (* The codomain is resolved around the arrow and lifted past its binder. *)
   | Arrow (domain, codomain) ->
       let* domain = resolve names domain in

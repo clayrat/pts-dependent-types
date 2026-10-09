@@ -100,8 +100,8 @@ let pp_ctx (g : ctx) =
   in
   match entries g names with [] -> "·" | es -> String.concat ", " es
 
-let pp_error ?(depth = max_int) e =
-  let pp = pp_term ~depth in
+let pp_error ?(depth = max_int) ?(names = []) e =
+  let pp = pp_term ~depth ~names in
   match e with
   | EUnboundVar n -> "unbound variable #" ^ string_of_int n
   | ENotInSystem s -> pp_sort s ^ " is not a sort of this system"
@@ -125,9 +125,9 @@ let rec drop n l = if n <= 0 then l else match l with [] -> [] | _ :: l' -> drop
 (* [ctx] is the input context of the run: the phase markers are open in
    it (an entry at level k in its k outermost entries), so they are
    printed with its names; the other events are printed with #k. *)
-let pp_event ?(depth = max_int) ?(ctx = []) ev =
+let pp_event ?(depth = max_int) ?(ctx = []) ?names ev =
   let pp = pp_term ~depth in
-  let names = ctx_names ctx in
+  let names = match names with Some names -> names | None -> ctx_names ctx in
   match ev with
   | EvCtxEntry (k, a) ->
       let outer = drop (List.length names - k) names in
@@ -151,10 +151,10 @@ let pp_event ?(depth = max_int) ?(ctx = []) ev =
       else "  " ^ pp a ^ " ≡ " ^ pp t ^ ", both ⇝ " ^ pp v
   | EvFamily (c, d, s) -> "  family " ^ pp c ^ " over " ^ pp d ^ " into " ^ pp_sort s
 
-let pp_answer ?(depth = max_int) pp_value = function
+let pp_answer ?(depth = max_int) ?(names = []) pp_value = function
   | Accepted a -> (match pp_value a with "" -> "accepted" | s -> "accepted: " ^ s)
-  | Rejected e -> "rejected: " ^ pp_error ~depth e
-  | Undecided t -> "undecided: out of fuel while typing " ^ pp_term ~depth t
+  | Rejected e -> "rejected: " ^ pp_error ~depth ~names e
+  | Undecided t -> "undecided: out of fuel while typing " ^ pp_term ~depth ~names t
 
 let pp_observation ?(depth = max_int) = function
   | ObsNumeral k -> string_of_int k

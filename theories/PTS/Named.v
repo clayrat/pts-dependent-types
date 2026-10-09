@@ -111,6 +111,12 @@ Fixpoint resolve_ctx (g : list (string * nterm)) : result string (list string * 
       Ok (x :: names, A' :: G)
   end.
 
+(** Whether a term, or a named context, resolves ([is_ok] of
+    Common.Result): used to check that a fallback value of a convenience
+    wrapper never stands in for an error. *)
+Definition resolves (names : list string) (t : nterm) : bool := is_ok (resolve names t).
+Definition ctx_resolves (g : list (string * nterm)) : bool := is_ok (resolve_ctx g).
+
 (** ** Resolution and closed terms *)
 
 Lemma index_of_app : forall x bs ns n,

@@ -87,6 +87,87 @@ let demo_strictness () =
   Printf.printf "  ifz_lazy (succ Ω) then 0 else 1 = %s%s\n" (pp_observation observed)
     (if verdict_of None observed = Contradicts then ", which contradicts PCF" else "")
 
+(* choose: a type computed from a boolean, in the predicative hierarchy. *)
+let demo_choose () =
+  let names g = List.map fst g in
+  header "Predicative MLTT: choose : Πb:Bool. A → B → (if b then A else B)";
+  let g = types_ctx in
+  Printf.printf "  A : Type₀, B : Type₀ ⊢ choose ⇓ %s\n"
+    (pp_term ~names:(names g) (term_in g choose_ty));
+  print_endline
+    (pp_answer (fun () -> "")
+       (snd (run_check predicative choose_fuel (in_ctx g) (term_in g choose) (term_in g choose_ty))));
+  let g = args_ctx in
+  header "Predicative MLTT: choose true a c ⇓ A, with a : A and c : B";
+  let events, answer =
+    run_check predicative choose_fuel (in_ctx g) (term_in g (choose_at NTrue)) (term_in g (NVar "A")) in
+  (* The application spine is typed in the context itself, so its events
+     are printed with its names; the checks of the definition of choose
+     and of the expected type are left out. *)
+  let pp = pp_term ~depth:5 ~names:(names g) in
+  List.iter
+    (function
+      | EvArg (u, a) -> Printf.printf "  argument %s : %s\n" (pp u) (pp a)
+      | EvSubst (_, _, b') -> Printf.printf "    the rest of the type: %s\n" (pp b')
+      | _ -> ())
+    events;
+  (match List.rev events with
+   | EvConv (a, t, v) :: _ ->
+       Printf.printf "  conversion: %s ≡ %s, both ⇝ %s\n" (pp a) (pp t) (pp v)
+   | _ -> ());
+  print_endline (pp_answer (fun () -> "") answer);
+  List.iter
+    (fun (b, label) ->
+      Printf.printf "  choose %s a c by normal order: %s\n" label
+        (pp_eval_result ~names:(names g) (normalize choose_fuel (term_in g (choose_at b)))))
+    [ (NTrue, "true"); (NFalse, "false") ];
+  let g = open_ctx in
+  header "Predicative MLTT: with b : Bool free, the type stays neutral";
+  (match snd (run_infer predicative choose_fuel (in_ctx g) (term_in g (choose_at (NVar "b")))) with
+   | Accepted ty ->
+       Printf.printf "  choose b a c ⇑ %s\n" (pp_term ~names:(names g) ty);
+       Printf.printf "  its normal form: %s\n"
+         (pp_eval_result ~names:(names g) (normalize choose_fuel ty))
+   | a -> print_endline (pp_answer (pp_term ~names:(names g)) a));
+  Printf.printf "  choose b a c ⇓ A: %s\n"
+    (pp_answer ~depth:3 ~names:(names g) (fun () -> "")
+       (snd (run_check predicative choose_fuel (in_ctx g) (term_in g (choose_at (NVar "b")))
+               (term_in g (NVar "A")))));
+  header "Predicative MLTT: errors";
+  let g = types_ctx in
+  Printf.printf "  branches swapped: %s\n"
+    (pp_answer ~depth:4 (fun () -> "")
+       (snd (run_check predicative choose_fuel (in_ctx g) (term_in g choose_swapped)
+               (term_in g choose_ty))));
+  Printf.printf "  (λ_. Type₀) ∷ Bool → Type₀: %s\n"
+    (pp_answer (pp_term ~depth) (snd (run_infer predicative choose_fuel [] (build [] low_family))))
+
+(* The eliminators of Void and Unit. *)
+let demo_eliminators () =
+  let names g = List.map fst g in
+  let answer ty = pp_answer ~depth:4 (pp_term ~depth:4 ~names:ty) in
+  header "Predicative MLTT: Void in a non-empty context";
+  let g = void_ctx in
+  Printf.printf "  A : Type₀, v : Void ⊢ %s ⇓ A: %s\n"
+    (pp_term ~names:(names g) (term_in g void_elim))
+    (pp_answer (fun () -> "")
+       (snd (run_check predicative elim_fuel (in_ctx g) (term_in g void_elim) (term_in g (NVar "A")))));
+  Printf.printf "  its normal form: %s\n"
+    (pp_eval_result ~names:(names g) (normalize elim_fuel (term_in g void_elim)));
+  header "Predicative MLTT: the dependent eliminator of Unit, C u = elimUnit (λ_. Type₀) Bool u";
+  (match snd (run_infer predicative elim_fuel [] (build [] (unit_elim NTt))) with
+   | Accepted ty -> Printf.printf "  ⊢ elimUnit C true tt ⇑ %s\n" (pp_term ~depth:4 ty)
+   | a -> print_endline (answer [] a));
+  Printf.printf "  C tt by normal order: %s\n"
+    (pp_eval_result (normalize elim_fuel (App (build [] unit_family, Tt))));
+  Printf.printf "  elimUnit C true tt by normal order: %s\n"
+    (pp_eval_result (normalize elim_fuel (build [] (unit_elim NTt))));
+  let g = unit_ctx in
+  Printf.printf "  u : Unit ⊢ elimUnit C true u ⇓ Bool: %s\n"
+    (pp_answer ~depth:4 ~names:(names g) (fun () -> "")
+       (snd (run_check predicative elim_fuel (in_ctx g) (term_in g (unit_elim (NVar "u"))) Bool)));
+  print_endline "  (no η for Unit: C u stays neutral and is not Bool)"
+
 (* The PCF translation, run against the PCF evaluator. *)
 let pcf_result t =
   match evalFuel pcf_fuel t with
@@ -135,4 +216,6 @@ let () =
   demo_normalize "Raw Ω under normal order, 3 steps" 3 raw_omega;
   demo_looping ();
   demo_strictness ();
-  demo_translation ()
+  demo_translation ();
+  demo_choose ();
+  demo_eliminators ()

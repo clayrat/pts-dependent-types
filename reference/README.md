@@ -24,6 +24,11 @@ differential test compares its translations and first errors with the extracted
 `translate` on every program of `Programs.v`, on ill-typed programs, open
 contexts and shadowing, and the normal-order results of short translations.
 
+`choose.ml` builds `choose` of the minimal MLTT with the same builder, now able
+to write the primitives and their eliminators. The differential test compares
+its terms, contexts, complete checker traces and normal forms with the extract.
+`eliminators.ml` does the same for the eliminators of Void and Unit.
+
 Run the examples directly, as with `strictness-pcf/reference/pcf_native.ml`:
 
 ```sh

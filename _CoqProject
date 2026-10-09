@@ -34,5 +34,7 @@ theories/PCFTranslation/Programs.v
 theories/PCFTranslation/TranslateSound.v
 theories/SystemU/Looping.v
 theories/SystemU/Encodings.v
+theories/MLTT/Choose.v
+theories/MLTT/Eliminators.v
 theories/Examples.v
 theories/Tests.v

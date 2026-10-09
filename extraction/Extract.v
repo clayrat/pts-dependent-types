@@ -12,6 +12,7 @@ From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNa
 From DepTypes.PTS Require Import Syntax Named Spec Eval Check.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes.SystemU Require Import Looping Encodings.
+From DepTypes.MLTT Require Import Choose Eliminators.
 From DepTypes.PCFTranslation Require Import Translate Programs.
 From PCF Require Examples OperationalSemantics.
 From DepTypes Require Import Examples.
@@ -43,4 +44,7 @@ Extraction "deptypes.ml"
   observe observe_fuel verdict_of best_verdict encodings_typed typed_in_u_minus strictness_cases
   tr_ty tr translate translate_program translated_type translate_checked translate_program_checked
   pcf_cases pcf_fuel translation_fuel fuel_for pcf_as_expected
+  universe_family cond choose_ty choose_family choose choose_swapped low_family
+  types_ctx args_ctx open_ctx in_ctx term_in choose_at choose_fuel build
+  elim_fuel void_ctx void_family void_elim unit_universe unit_family unit_elim unit_ctx
   PCF.Examples.add PCF.Examples.mul PCF.Examples.fact PCF.OperationalSemantics.evalFuel.

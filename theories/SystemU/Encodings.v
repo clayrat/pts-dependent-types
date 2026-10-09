@@ -165,7 +165,10 @@ Definition encodings_typed : list (string * nterm * nterm) :=
     ("Ω_ℕ", omega_nat, CNat); ("Ω_ℕ→ℕ", omega_fun, CNat ~> CNat);
     ("ifz at ℕ → ℕ", ifz (CNat ~> CNat) czero csucc cpred, CNat ~> CNat) ].
 
+(** [false] also when [t] or [A] does not resolve, so that the fallback
+    of [church] never stands in for an error. *)
 Definition typed_in_u_minus (t A : nterm) : bool :=
+  resolves [] t && resolves [] A &&
   match snd (run_infer system_u_minus looping_fuel [] (church t)) with
   | Accepted B => term_eqb B (church A)
   | _ => false
@@ -179,6 +182,7 @@ Lemma typed_in_u_minus_sound : forall t A,
   typed_in_u_minus t A = true -> system_u_minus ;; [] ⊢ church t ⇑ church A.
 Proof.
   intros t A H. unfold typed_in_u_minus in H.
+  apply andb_prop in H as [_ H].
   destruct (snd (run_infer system_u_minus looping_fuel [] (church t))) as [B| |] eqn:E;
     try discriminate.
   apply term_eqb_eq in H. subst. exact (accepted_synth _ _ _ _ E).
@@ -198,6 +202,14 @@ Fixpoint succs (k : nat) (t : nterm) : nterm :=
   | 0 => t
   | S k' => csucc (succs k' t)
   end.
+
+(** Every term observed below resolves: [church] does not fall back. *)
+Example observed_terms_resolve :
+  forallb (resolves [])
+    (map (fun k => succs k czero) [0; 1; 2; 5] ++ map (fun k => cpred (numeral k)) [0; 1; 2; 5] ++
+     map (fun k => ifz CNat (numeral k) (numeral 7) (numeral 9)) [0; 1; 3] ++
+     [ifz_lazy CNat (csucc omega_nat) czero (numeral 1)]) = true.
+Proof. vm_compute. reflexivity. Qed.
 
 Example succ_observed :
   map (fun k => observe observe_fuel (church (succs k czero))) [0; 1; 2; 5]
@@ -271,6 +283,10 @@ Definition verdict_eqb (v w : verdict) : bool :=
   | Agrees, Agrees | NoResult, NoResult | Contradicts, Contradicts => true
   | _, _ => false
   end.
+
+Example strictness_cases_resolve :
+  forallb (fun '(_, t, _) => resolves [] t) strictness_cases = true.
+Proof. vm_compute. reflexivity. Qed.
 
 Example strictness_cases_typed :
   forallb (fun '(_, t, _) => typed_in_u_minus t CNat) strictness_cases = true.

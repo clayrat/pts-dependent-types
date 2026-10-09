@@ -96,4 +96,46 @@ let () =
                 | Err _ -> false)))
         "true")
     pcf_cases;
+  (* choose. *)
+  let accepted = function Accepted _ -> "accepted" | Rejected _ -> "rejected" | Undecided _ -> "undecided" in
+  let names g = List.map fst g in
+  expect "choose typed"
+    (accepted (snd (run_check predicative choose_fuel (in_ctx types_ctx)
+                      (term_in types_ctx choose) (term_in types_ctx choose_ty))))
+    "accepted";
+  List.iter
+    (fun (b, ty, v, label) ->
+      expect ("choose " ^ label ^ " typed")
+        (accepted (snd (run_check predicative choose_fuel (in_ctx args_ctx)
+                          (term_in args_ctx (choose_at b)) (term_in args_ctx (NVar ty)))))
+        "accepted";
+      expect ("choose " ^ label ^ " evaluates")
+        (pp_eval_result ~names:(names args_ctx) (normalize choose_fuel (term_in args_ctx (choose_at b))))
+        ("normal form " ^ v))
+    [ (NTrue, "A", "a", "true"); (NFalse, "B", "c", "false") ];
+  expect "choose open not A"
+    (accepted (snd (run_check predicative choose_fuel (in_ctx open_ctx)
+                      (term_in open_ctx (choose_at (NVar "b"))) (term_in open_ctx (NVar "A")))))
+    "rejected";
+  expect "choose swapped"
+    (accepted (snd (run_check predicative choose_fuel (in_ctx types_ctx)
+                      (term_in types_ctx choose_swapped) (term_in types_ctx choose_ty))))
+    "rejected";
+  expect "low family"
+    (pp_answer pp_term (snd (run_infer predicative choose_fuel [] (build [] low_family))))
+    "rejected: Type₀ has type Type₁, expected Type₀";
+  (* Void and Unit. *)
+  expect "void elimination"
+    (accepted (snd (run_check predicative elim_fuel (in_ctx void_ctx) (term_in void_ctx void_elim)
+                      (term_in void_ctx (NVar "A")))))
+    "accepted";
+  expect "unit elimination typed"
+    (accepted (snd (run_check predicative elim_fuel [] (build [] (unit_elim NTt)) Bool)))
+    "accepted";
+  expect "unit elimination computes"
+    (pp_eval_result (normalize elim_fuel (build [] (unit_elim NTt)))) "normal form true";
+  expect "unit elimination open"
+    (accepted (snd (run_check predicative elim_fuel (in_ctx unit_ctx)
+                      (term_in unit_ctx (unit_elim (NVar "u"))) Bool)))
+    "rejected";
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

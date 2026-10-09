@@ -6,6 +6,8 @@ module N = Pts_native
 module L = Looping
 module E = Encodings
 module T = Translate
+module C = Choose
+module El = Eliminators
 
 (* Extracted PCF syntax, as the native translator's. *)
 let rec pty_of = function X.Tnat -> T.Nat | X.Tarr (a, b) -> T.Arrow (pty_of a, pty_of b)
@@ -336,4 +338,49 @@ let () =
         equal ("translated/normalize/" ^ name)
           (eval_to_extracted (N.normalize translation_fuel nu)) (X.normalize translation_fuel u)
     | _ -> ()) pcf_cases;
+  (* choose: the same terms and contexts, the same checker traces, and the
+     same normal forms. *)
+  let in_x g = X.in_ctx g and term_x g t = X.term_in g t in
+  equal "choose/types ctx" (List.map term_to_extracted (C.in_ctx C.types_ctx)) (in_x types_ctx);
+  equal "choose/open ctx" (List.map term_to_extracted (C.in_ctx C.open_ctx)) (in_x open_ctx);
+  let runs = [
+    "choose", C.types_ctx, C.choose, C.choose_ty, types_ctx, choose, choose_ty;
+    "choose true", C.args_ctx, C.choose_at (Looping.Const N.BTrue), Looping.name "A",
+      args_ctx, choose_at NTrue, NVar "A";
+    "choose false", C.args_ctx, C.choose_at (Looping.Const N.BFalse), Looping.name "B",
+      args_ctx, choose_at NFalse, NVar "B";
+    "choose open", C.open_ctx, C.choose_at (Looping.name "b"), Looping.name "A",
+      open_ctx, choose_at (NVar "b"), NVar "A";
+    "choose swapped", C.types_ctx, C.choose_swapped, C.choose_ty, types_ctx, choose_swapped, choose_ty;
+  ] in
+  List.iter (fun (name, ng, nt, na, g, t, a) ->
+    equal ("choose/term/" ^ name) (term_to_extracted (C.term_in ng nt)) (term_x g t);
+    let events, answer =
+      N.run_check N.predicative choose_fuel (C.in_ctx ng) (C.term_in ng nt) (C.term_in ng na) in
+    equal ("choose/check/" ^ name)
+      (List.map event_to_extracted events, answer_to_extracted Fun.id answer)
+      (X.run_check predicative choose_fuel (in_x g) (term_x g t) (term_x g a));
+    equal ("choose/normalize/" ^ name)
+      (eval_to_extracted (N.normalize choose_fuel (C.term_in ng nt)))
+      (X.normalize choose_fuel (term_x g t))) runs;
+  check_infer "choose/low family" predicative N.predicative choose_fuel [] (X.build [] low_family);
+  (* Void and Unit: the same terms, checker traces and normal forms. *)
+  let elim_runs = [
+    "void", El.void_ctx, El.void_elim, Looping.name "A", void_ctx, void_elim, NVar "A";
+    "void wrong scrutinee", El.void_ctx, Looping.ElimVoid (El.void_family, Looping.Const N.Tt),
+      Looping.name "A", void_ctx, NElimVoid (void_family, NTt), NVar "A";
+    "unit tt", [], El.unit_elim (Looping.Const N.Tt), Looping.Const N.Bool, [], unit_elim NTt, NBool;
+    "unit open", El.unit_ctx, El.unit_elim (Looping.name "u"), Looping.Const N.Bool,
+      unit_ctx, unit_elim (NVar "u"), NBool;
+  ] in
+  List.iter (fun (name, ng, nt, na, g, t, a) ->
+    equal ("elim/term/" ^ name) (term_to_extracted (C.term_in ng nt)) (term_x g t);
+    let events, answer =
+      N.run_check N.predicative elim_fuel (C.in_ctx ng) (C.term_in ng nt) (C.term_in ng na) in
+    equal ("elim/check/" ^ name)
+      (List.map event_to_extracted events, answer_to_extracted Fun.id answer)
+      (X.run_check predicative elim_fuel (in_x g) (term_x g t) (term_x g a));
+    equal ("elim/normalize/" ^ name)
+      (eval_to_extracted (N.normalize elim_fuel (C.term_in ng nt)))
+      (X.normalize elim_fuel (term_x g t))) elim_runs;
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions

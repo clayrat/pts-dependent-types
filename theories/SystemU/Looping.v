@@ -134,9 +134,9 @@ Definition looping (n : nat) : term := build [] (L n).
 Definition looping_ty : term := build [] L_ty.
 
 Example looping_resolves :
-  map (fun n => match resolve [] (L n) with Ok _ => true | Err _ => false end) [0; 1; 2; 3]
-  = [true; true; true; true].
-Proof. vm_compute. reflexivity. Qed.
+  map (fun n => resolves [] (L n)) [0; 1; 2; 3] = [true; true; true; true] /\
+  resolves [] L_ty = true /\ resolves ["f"; "β"] paradox = true /\ resolves ["i"] induct_body = true.
+Proof. vm_compute. repeat split. Qed.
 
 (** ** Typing in U⁻
 
