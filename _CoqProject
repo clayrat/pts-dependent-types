@@ -29,5 +29,6 @@ theories/Configs/Finite.v
 theories/Configs/Predicative.v
 theories/PCFTranslation/Source.v
 theories/SystemU/Looping.v
+theories/SystemU/Encodings.v
 theories/Examples.v
 theories/Tests.v

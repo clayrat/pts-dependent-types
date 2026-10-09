@@ -72,4 +72,17 @@ let () =
               (unfolds_to unfolding_fuel (looping_applied n) (Var 0) (looping_applied (n + 1))))
           [ 0; 1 ]))
     "true,true";
+  (* Church numerals and strictness. *)
+  List.iter
+    (fun ((name, t), expected) ->
+      expect ("strictness: " ^ name)
+        (string_of_bool
+           (typed_in_u_minus t cNat
+            && verdict_of expected (observe observe_fuel (church t)) = best_verdict expected))
+        "true")
+    strictness_cases;
+  expect "lazy test"
+    (pp_observation
+       (observe observe_fuel (church (ifz_lazy cNat (NApp (csucc, omega_nat)) czero (numeral 1)))))
+    "1";
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

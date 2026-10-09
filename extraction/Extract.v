@@ -11,7 +11,7 @@
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNativeString.
 From DepTypes.PTS Require Import Syntax Named Spec Eval Check.
 From DepTypes.Configs Require Import Finite Predicative.
-From DepTypes.SystemU Require Import Looping.
+From DepTypes.SystemU Require Import Looping Encodings.
 From DepTypes Require Import Examples.
 
 Extraction Language OCaml.
@@ -35,4 +35,7 @@ Extraction "deptypes.ml"
   infer check run_infer run_check
   id_ty id_tm id_applied_ctx id_applied star_box_ctx star_box
   type_family large_elim_ty self_app raw_omega
-  joinable looping looping_ty looping_applied looping_fuel unfolding_fuel unfolds_to.
+  joinable looping looping_ty looping_applied looping_fuel unfolding_fuel unfolds_to
+  CNat CBool ctrue cfalse czero csucc numeral cpair cfst csnd cshift cpred
+  is_zero is_zero_lazy ifz ifz_lazy omega_nat omega_fun church church_nf decode_nat
+  observe observe_fuel verdict_of best_verdict encodings_typed typed_in_u_minus strictness_cases.

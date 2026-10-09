@@ -12,6 +12,12 @@ the family `Lₙ`. It fails on an unbound name. The differential test compares
 these native terms with the Rocq extract before running the native checker
 and evaluator on them.
 
+`encodings.ml` builds, with the same builder, the Church numerals and booleans,
+Kleene's predecessor, the zero test strict in the whole numeral and the PCF
+strictness programs. The differential test compares the terms, their complete
+typing traces in U⁻, and their bounded normal-order results and decoded
+numerals with the extract.
+
 Run the examples directly, as with `strictness-pcf/reference/pcf_native.ml`:
 
 ```sh

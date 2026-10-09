@@ -4,6 +4,7 @@
 module X = Deptypes
 module N = Pts_native
 module L = Looping
+module E = Encodings
 
 let sort_of_extracted = function
   | X.Star -> N.Star | X.Box -> N.Box | X.Tri -> N.Tri | X.Univ i -> N.Univ i
@@ -241,4 +242,28 @@ let () =
     equal (Printf.sprintf "looping unfolding/%d" fuel)
       (List.map term_to_extracted (fst (N.normalize_trace fuel (L.looping_applied 0))))
       (fst (X.normalize_trace fuel (looping_applied 0)))) [11; 30];
+  (* Church numerals: the same terms, the same typing traces in U⁻, and the
+     same bounded normal-order results on the strictness programs. *)
+  List.iter2 (fun ((name, t), ty) (_, nt, nty) ->
+    let t = church t and ty = church ty in
+    equal ("encoding/term/" ^ name) (term_to_extracted (E.church nt)) t;
+    equal ("encoding/type/" ^ name) (term_to_extracted (E.church nty)) ty;
+    let events, answer = N.run_infer N.system_u_minus looping_fuel [] (E.church nt) in
+    equal ("encoding/infer/" ^ name)
+      (List.map event_to_extracted events, answer_to_extracted term_to_extracted answer)
+      (X.run_infer system_u_minus looping_fuel [] t)) encodings_typed E.encodings_typed;
+  List.iter2 (fun ((name, t), expected) (_, nt, nexpected) ->
+    let t = church t and nt = E.church nt in
+    equal ("strictness/term/" ^ name) (term_to_extracted nt) t;
+    equal ("strictness/expected/" ^ name) nexpected expected;
+    let events, answer = N.run_check N.system_u_minus looping_fuel [] nt (E.church E.c_nat) in
+    equal ("strictness/check/" ^ name)
+      (List.map event_to_extracted events, answer_to_extracted Fun.id answer)
+      (X.run_check system_u_minus looping_fuel [] t (church cNat));
+    let native = N.normalize observe_fuel nt in
+    equal ("strictness/normalize/" ^ name) (eval_to_extracted native) (X.normalize observe_fuel t);
+    equal ("strictness/decode/" ^ name)
+      (match native with N.NormalForm v -> E.decode_nat v | _ -> None)
+      (match X.normalize observe_fuel t with X.NormalForm v -> decode_nat v | _ -> None))
+    strictness_cases E.strictness_cases;
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions

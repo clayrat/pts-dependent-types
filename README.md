@@ -29,7 +29,10 @@ The base definitions and bounded evaluator exist (stages 0–2 of the
 implementation plan); the checker of stage 3 runs, is tested on examples and
 is proved sound against the annotated kernel, and is extracted to OCaml with
 demonstrations; stage 3 is complete. The looping combinator of stage 4 is
-built, typed in U⁻ and rejected in the predicative hierarchy. The translation is
+built, typed in U⁻ and rejected in the predicative hierarchy; the Church
+numerals of stage 5 give the PCF result on the terminating regression programs,
+and no result within the limit on those that diverge in PCF; divergence and the
+adequacy of the encoding are not proved. The translation is
 not implemented yet.
 
 | Component | Status |
@@ -48,7 +51,8 @@ not implemented yet.
 | OCaml extraction, printer with names, demonstrations, regression tests | done |
 | independent readable OCaml reference and differential tests | implemented in `reference/` |
 | looping combinator `L₀` and family `Lₙ` from Hurkens' paradox | typed in U⁻ (n ≤ 3), unfolding `Lₙ β f =β f (Lₙ₊₁ β f)` certified (n ≤ 2), predicative rejection recorded |
-| numeral encodings, PCF translation | not started |
+| Church numerals, Kleene predecessor, zero test strict in the whole numeral | typed in U⁻, correct on numerals; on the strictness regressions, the PCF result for terminating programs and no result within the limit for diverging ones (divergence not proved) |
+| PCF translation | not started |
 
 ## Building
 
@@ -99,6 +103,7 @@ strictness analyser and its Equations dependency are not required.
 | `Configs/Predicative.v` | Type_i : Type_(i+1) with the `max` rule, with and without primitives; the renaming of ∗, □, △ to Type_0, Type_1, Type_2. |
 | `PCFTranslation/Source.v` | The source PCF from the submodule, under qualified names. |
 | `SystemU/Looping.v` | Hurkens' paradox in λU⁻ after Geuvers–Verkoelen (TLCA version, §4), written with the builder: `V`, `U`, `sb`, `le`, `induct`, `WF`, `I`, `omega`, `lemma`, `lemma2`, `paradox`, the looping combinator `L₀ : Πβ:∗. (β → β) → β` and the family `Lₙ` of their Lemma 3. `looping_typed` (n ≤ 3) from checker runs and `run_infer_sound`; `looping_unfolds` (n ≤ 2) from bounded evaluation, `whnf_reduces` and `joinable_sound`; `looping_predicative_rejected` records where the predicative checker fails: the body of `induct` quantifies over `U : Type₂`. |
+| `SystemU/Encodings.v` | Church numerals and booleans in pure U⁻, Kleene's predecessor through pairs, and `ifz` at any result type with a zero test strict in the whole numeral: its step uses the result of the inner layer, so a partial numeral such as `succ Ω` makes it diverge, while the branches and function arguments stay lazy. The lazy test is kept as the counterexample. `observe` decodes a normal form to a number (`observe_numeral_sound`); `omega_nat_typed` checks the translation of Ω_ℕ; the PCF strictness regressions are typed in U⁻ and judged by a three-valued verdict: terminating programs agree with PCF, diverging ones have no result within the limit, which is not a proof of divergence. |
 | `Examples.v` | The lecture examples shared by the tests and the OCaml demos: the polymorphic identity and its application, the forbidden rule (∗,□), large elimination, the raw Ω. The raw Ω is `raw_omega`, apart from the `omega` of Hurkens' paradox. |
 | `Tests.v` | Substitution without capture, open terms, PTS tables, normal order, bounded evaluation and traces, conversion without η, declarative versus annotated typing, admissibility of expected types, and the checker on U⁻ and the predicative hierarchy (lecture traces of `id A x` and of large elimination, the forbidden rule (∗,□), the universe level of ΠA:Type₀. A → A, large elimination, and each kind of error), and validation of inputs (an unbound annotation in the expected type, the top sort △ accepted, ill-formed contexts). |
 

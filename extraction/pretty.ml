@@ -156,6 +156,12 @@ let pp_answer ?(depth = max_int) pp_value = function
   | Rejected e -> "rejected: " ^ pp_error ~depth e
   | Undecided t -> "undecided: out of fuel while typing " ^ pp_term ~depth t
 
+let pp_observation ?(depth = max_int) = function
+  | ObsNumeral k -> string_of_int k
+  | ObsOtherNormal t -> "normal form " ^ pp_term ~depth t ^ ", not a numeral"
+  | ObsStuck t -> "stuck at " ^ pp_term ~depth t
+  | ObsOutOfFuel _ -> "no normal form within the fuel"
+
 let pp_eval_result ?(depth = max_int) ?(names = []) = function
   | NormalForm t -> "normal form " ^ pp_term ~depth ~names t
   | StuckTerm t -> "stuck at " ^ pp_term ~depth ~names t

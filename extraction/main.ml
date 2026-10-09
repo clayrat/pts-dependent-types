@@ -59,6 +59,34 @@ let demo_looping () =
         (unfolds_to unfolding_fuel (looping_applied n) (Var 0) (looping_applied (n + 1))))
     [ 0; 1; 2 ]
 
+(* Pads to [n] characters, counting UTF-8 code points, not bytes. *)
+let pad n s =
+  let width = ref 0 in
+  String.iter (fun c -> if Char.code c land 0xC0 <> 0x80 then incr width) s;
+  s ^ String.make (max 0 (n - !width)) ' '
+
+(* Church numerals and the strictness of PCF. *)
+let demo_strictness () =
+  header "U⁻: Church numerals with the zero test strict in the whole numeral";
+  List.iter
+    (fun ((name, t), expected) ->
+      let typed = typed_in_u_minus t cNat in
+      let observed = observe observe_fuel (church t) in
+      Printf.printf "  %s %s %s %s\n" (pad 36 name)
+        (pad 10 (if typed then ": ℕ" else "ILL-TYPED"))
+        (pad 31 (pp_observation observed))
+        (match verdict_of expected observed with
+         | Agrees -> "the PCF result"
+         | NoResult -> "no result within the limit (PCF diverges)"
+         | Contradicts -> "CONTRADICTS PCF"))
+    strictness_cases;
+  print_endline "  No result within the limit is not a proof of divergence.";
+  header "U⁻: the usual lazy test answers where PCF diverges";
+  let observed =
+    observe observe_fuel (church (ifz_lazy cNat (NApp (csucc, omega_nat)) czero (numeral 1))) in
+  Printf.printf "  ifz_lazy (succ Ω) then 0 else 1 = %s%s\n" (pp_observation observed)
+    (if verdict_of None observed = Contradicts then ", which contradicts PCF" else "")
+
 let () =
   print_endline "In events, #k is the free variable with de Bruijn index k.";
   demo_infer "U⁻: the polymorphic identity applied, id A x" system_u_minus
@@ -73,4 +101,5 @@ let () =
   demo_check "Predicative: large elimination computes the type Unit" predicative []
     Tt large_elim_ty;
   demo_normalize "Raw Ω under normal order, 3 steps" 3 raw_omega;
-  demo_looping ()
+  demo_looping ();
+  demo_strictness ()
