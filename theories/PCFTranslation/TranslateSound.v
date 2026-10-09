@@ -135,21 +135,7 @@ Proof. intros A G. eapply C_Synth; [apply tty_star | apply conv_refl]. Qed.
 
 (** ** Numerals, for every k *)
 
-Definition iterv (k : nat) : term := Nat.iter k (App (Var 1)) (Var 0).
-
-Lemma resolve_iter_f : forall k, resolve ["x"; "f"; "X"]%string (iter_f k) = Ok (iterv k).
-Proof.
-  induction k as [|k IH]; [reflexivity | ].
-  cbn [iter_f]. unfold napp. cbn [resolve]. rewrite IH. reflexivity.
-Qed.
-
-Lemma resolve_numeral : forall k, resolve [] (numeral k) = Ok (Ann (Lam (Lam (Lam (iterv k)))) nat').
-Proof.
-  intros k. unfold numeral. cbn [resolve]. rewrite resolve_iter_f. reflexivity.
-Qed.
-
-Lemma church_numeral : forall k, church (numeral k) = Ann (Lam (Lam (Lam (iterv k)))) nat'.
-Proof. intros k. unfold church, build. now rewrite resolve_numeral. Qed.
+(* [iterv], [resolve_numeral] and [church_numeral] are in SystemU.Encodings. *)
 
 (** Under [X : ∗, f : X → X, x : X], [fᵏ x : X]. *)
 Definition numeral_ctx : ctx := [Var 1; Pi (Var 0) (Var 1); Srt Star].
@@ -165,7 +151,8 @@ Qed.
 Lemma numeral_typed : forall G k, system_u_minus ;; G ⊢ church (numeral k) ⇑ nat'.
 Proof.
   intros G k. apply synth_closed.
-  - rewrite church_numeral. eapply S_Ann; [apply nat'_star | apply rt_refl | ].
+  - rewrite church_numeral. change (church CNat) with nat'.
+    eapply S_Ann; [apply nat'_star | apply rt_refl | ].
     rewrite nat'_form.
     eapply C_Lam; [apply rt_refl | ]. eapply C_Lam; [apply rt_refl | ].
     eapply C_Lam; [apply rt_refl | ].

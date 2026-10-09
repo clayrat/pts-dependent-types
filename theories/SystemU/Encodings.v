@@ -154,6 +154,26 @@ Qed.
 
 Definition church (t : nterm) : term := build [] t.
 
+(** The resolved numeral: [λX f x. fᵏ x], annotated with [Nat]. *)
+Definition iterv (k : nat) : term := Nat.iter k (App (Var 1)) (Var 0).
+
+Lemma resolve_iter_f : forall k, resolve ["x"; "f"; "X"] (iter_f k) = Ok (iterv k).
+Proof.
+  induction k as [|k IH]; [reflexivity | ].
+  cbn [iter_f]. unfold napp. cbn [resolve]. rewrite IH. reflexivity.
+Qed.
+
+Lemma resolve_numeral : forall k, resolve [] (numeral k) = Ok (Ann (Lam (Lam (Lam (iterv k)))) (church CNat)).
+Proof.
+  intros k. unfold numeral. cbn [resolve]. rewrite resolve_iter_f. reflexivity.
+Qed.
+
+Lemma church_numeral : forall k, church (numeral k) = Ann (Lam (Lam (Lam (iterv k)))) (church CNat).
+Proof. intros k. unfold church at 1, build. now rewrite resolve_numeral. Qed.
+
+Lemma church_nf_iterv : forall k, church_nf k = Lam (Lam (Lam (iterv k))).
+Proof. reflexivity. Qed.
+
 Definition encodings_typed : list (string * nterm * nterm) :=
   [ ("true", ctrue, CBool); ("false", cfalse, CBool);
     ("zero", czero, CNat); ("succ", csucc, CNat ~> CNat);

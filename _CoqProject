@@ -20,6 +20,7 @@ theories/PTS/Syntax.v
 theories/PTS/Named.v
 theories/PTS/Spec.v
 theories/PTS/Reduction.v
+theories/PTS/SubstLaws.v
 theories/PTS/NormalOrder.v
 theories/PTS/Eval.v
 theories/PTS/Typing.v
@@ -34,7 +35,9 @@ theories/PCFTranslation/Programs.v
 theories/PCFTranslation/TranslateSound.v
 theories/SystemU/Looping.v
 theories/SystemU/Encodings.v
+theories/SystemU/EncodingsCompute.v
 theories/MLTT/Choose.v
 theories/MLTT/Eliminators.v
+theories/Contracts.v
 theories/Examples.v
 theories/Tests.v
