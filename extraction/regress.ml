@@ -45,7 +45,7 @@ let () =
     (pp_event ~ctx:id_applied_ctx (EvCtxEntry (1, Var 0))) "context entry x : A";
   (* The term builder, used from OCaml: names in, de Bruijn terms out. *)
   let named_id =
-    NAnn (NLam ("A", NLam ("x", NVar "x")), NPi ("A", NSrt Star, NPi (anon, NVar "A", NVar "A")))
+    NAnn (NLam ("A", NLam ("x", NVar "x")), NPi ("A", NSrt Star, NArrow (NVar "A", NVar "A")))
   in
   let resolved = function Ok t -> pp_term t | Err x -> "unbound " ^ x in
   expect "named id" (resolved (resolve [] named_id)) (pp_term id_tm);
@@ -85,4 +85,15 @@ let () =
     (pp_observation
        (observe observe_fuel (church (ifz_lazy cNat (NApp (csucc, omega_nat)) czero (numeral 1)))))
     "1";
+  (* The PCF translation. *)
+  List.iter
+    (fun ((name, t), expected) ->
+      expect ("translation: " ^ name)
+        (string_of_bool
+           (pcf_as_expected expected t
+            && (match translate_program_checked looping_fuel t with
+                | Ok u -> verdict_of expected (observe (fuel_for expected) u) = best_verdict expected
+                | Err _ -> false)))
+        "true")
+    pcf_cases;
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

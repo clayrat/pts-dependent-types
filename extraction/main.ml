@@ -87,6 +87,38 @@ let demo_strictness () =
   Printf.printf "  ifz_lazy (succ Ω) then 0 else 1 = %s%s\n" (pp_observation observed)
     (if verdict_of None observed = Contradicts then ", which contradicts PCF" else "")
 
+(* The PCF translation, run against the PCF evaluator. *)
+let pcf_result t =
+  match evalFuel pcf_fuel t with
+  | Value (Tnum k) -> string_of_int k
+  | Value _ -> "a value"
+  | Timeout -> "no value within the fuel"
+  | Stuck _ -> "stuck"
+
+let demo_translation () =
+  header "PCF → U⁻: programs, PCF evaluator, and the translation by normal order";
+  print_endline "  Each translation is checked against ℕ by the U⁻ checker before it runs.";
+  List.iter
+    (fun ((name, t), expected) ->
+      match translate_program_checked looping_fuel t with
+      | Err (TrTargetRejected e) ->
+          Printf.printf "  %s REJECTED BY THE U⁻ CHECKER: %s\n" (pad 36 name) (pp_error e)
+      | Err (TrTargetUndecided _) ->
+          Printf.printf "  %s U⁻ checker out of fuel\n" (pad 36 name)
+      | Err _ -> Printf.printf "  %s NOT TRANSLATED\n" (pad 36 name)
+      | Ok u ->
+          let observed = observe (fuel_for expected) u in
+          Printf.printf "  %s PCF %s  U⁻ %s %s %s\n" (pad 36 name)
+            (pad 25 (pcf_result t))
+            ": ℕ"
+            (pad 31 (pp_observation observed))
+            (match verdict_of expected observed with
+             | Agrees -> "agrees"
+             | NoResult -> "no result within the limit"
+             | Contradicts -> "CONTRADICTS PCF"))
+    pcf_cases;
+  print_endline "  fact 4 = 24 takes about 1.4 million steps: make -C extraction slow"
+
 let () =
   print_endline "In events, #k is the free variable with de Bruijn index k.";
   demo_infer "U⁻: the polymorphic identity applied, id A x" system_u_minus
@@ -102,4 +134,5 @@ let () =
     Tt large_elim_ty;
   demo_normalize "Raw Ω under normal order, 3 steps" 3 raw_omega;
   demo_looping ();
-  demo_strictness ()
+  demo_strictness ();
+  demo_translation ()

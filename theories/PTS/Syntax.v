@@ -24,7 +24,7 @@
     [subst1 b u] is [b[u/0]], decrementing the other free variables of
     [b]. *)
 
-From Stdlib Require Import Arith List Bool.
+From Stdlib Require Import Arith List Bool Lia.
 Import ListNotations.
 
 (** ** Sorts *)
@@ -213,3 +213,82 @@ Definition ctx : Type := list term.
 
 Definition lookup (G : ctx) n : option term :=
   option_map (lift (S n)) (nth_error G n).
+
+(** ** Closed terms are unaffected by renaming and substitution *)
+
+Lemma rename_closed_above : forall t k r,
+  closed_above k t = true -> (forall i, i < k -> r i = i) -> rename r t = t.
+Proof.
+  induction t; intros k r Hc Hr; cbn in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    try reflexivity.
+  all: try (f_equal; apply Hr; apply Nat.ltb_lt; assumption).
+  all: f_equal;
+    first [ eapply IHt1; eassumption | eapply IHt2; eassumption | eapply IHt3; eassumption
+          | eapply IHt4; eassumption | eapply IHt; eassumption
+          | idtac ].
+  all: match goal with
+       | IH : forall k r, closed_above k ?b = true -> _ -> rename r ?b = ?b,
+         H : closed_above (S ?k) ?b = true |- rename (up_ren ?r) ?b = ?b =>
+           apply (IH (S k)); [exact H | intros [|i] Hi; cbn; [reflexivity | f_equal; apply Hr; lia]]
+       end.
+Qed.
+
+Lemma subst_closed_above : forall t k sb,
+  closed_above k t = true -> (forall i, i < k -> sb i = Var i) -> subst sb t = t.
+Proof.
+  induction t; intros k sb Hc Hs; cbn in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    try reflexivity.
+  all: try (apply Hs; apply Nat.ltb_lt; assumption).
+  all: f_equal;
+    first [ eapply IHt1; eassumption | eapply IHt2; eassumption | eapply IHt3; eassumption
+          | eapply IHt4; eassumption | eapply IHt; eassumption
+          | idtac ].
+  all: match goal with
+       | IH : forall k sb, closed_above k ?b = true -> _ -> subst sb ?b = ?b,
+         H : closed_above (S ?k) ?b = true |- subst (up_sub ?s) ?b = ?b =>
+           apply (IH (S k)); [exact H | intros [|i] Hi; cbn; [reflexivity | ]]
+       end.
+  all: unfold lift; rewrite Hs by lia; reflexivity.
+Qed.
+
+Lemma lift_closed : forall k t, closed t = true -> lift k t = t.
+Proof. intros k t H. apply (rename_closed_above t 0); [exact H | intros i Hi; lia]. Qed.
+
+Lemma subst_closed : forall sb t, closed t = true -> subst sb t = t.
+Proof. intros sb t H. apply (subst_closed_above t 0); [exact H | intros i Hi; lia]. Qed.
+
+Lemma subst1_closed : forall t u, closed t = true -> subst1 t u = t.
+Proof. intros t u H. apply subst_closed, H. Qed.
+
+Lemma closed_above_mono : forall t k k', closed_above k t = true -> k <= k' -> closed_above k' t = true.
+Proof.
+  induction t; intros k k' H Hk; cbn in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    repeat (apply andb_true_intro; split); try reflexivity.
+  all: try (apply Nat.ltb_lt; apply Nat.ltb_lt in H; lia).
+  all: first [ eapply IHt1 | eapply IHt2 | eapply IHt3 | eapply IHt4 | eapply IHt ];
+       first [ eassumption | lia ].
+Qed.
+
+Lemma closed_pi : forall A B, closed A = true -> closed B = true -> closed (Pi A B) = true.
+Proof.
+  intros A B HA HB. unfold closed in *. cbn. rewrite HA.
+  apply (closed_above_mono B 0 1 HB). lia.
+Qed.
+
+Lemma closed_above_rename : forall t k k' r,
+  closed_above k t = true -> (forall i, i < k -> r i < k') -> closed_above k' (rename r t) = true.
+Proof.
+  induction t; intros k k' r H Hr; cbn in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    repeat (apply andb_true_intro; split); try reflexivity.
+  all: try (apply Nat.ltb_lt, Hr, Nat.ltb_lt; assumption).
+  all: first [ eapply IHt1 | eapply IHt2 | eapply IHt3 | eapply IHt4 | eapply IHt ];
+       try eassumption.
+  all: intros [|i] Hi; cbn; [lia | ]. all: specialize (Hr i ltac:(lia)); lia.
+Qed.
+
+Lemma closed_above_lift1 : forall t k, closed_above k t = true -> closed_above (S k) (lift 1 t) = true.
+Proof. intros t k H. apply (closed_above_rename t k); [exact H | intros; cbn; lia]. Qed.

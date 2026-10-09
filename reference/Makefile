@@ -12,8 +12,8 @@ run:
 test:
 	$(MAKE) -C ../extraction extract
 	mkdir -p _build
-	cp ../extraction/generated/deptypes.ml ../extraction/generated/deptypes.mli pts_native.mli pts_native.ml looping.ml encodings.ml diff.ml _build/
-	cd _build && $(OCAMLC) deptypes.mli deptypes.ml pts_native.mli pts_native.ml looping.ml encodings.ml diff.ml -o diff
+	cp ../extraction/generated/deptypes.ml ../extraction/generated/deptypes.mli pts_native.mli pts_native.ml looping.ml encodings.ml translate.ml diff.ml _build/
+	cd _build && $(OCAMLC) deptypes.mli deptypes.ml pts_native.mli pts_native.ml looping.ml encodings.ml translate.ml diff.ml -o diff
 	_build/diff
 
 clean:

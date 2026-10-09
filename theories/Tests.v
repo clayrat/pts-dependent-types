@@ -508,7 +508,8 @@ Section Named.
   Example named_unbound : resolve ["x"] ("x" "y") = Err "y".
   Proof. reflexivity. Qed.
 
-  Example named_anon_unreachable : resolve ["A"] ("A" ~> anon) = Err anon.
+  (** The arrow binds no name: "_" is an ordinary variable. *)
+  Example named_underscore : resolve [] (λ "_", "_") = Ok (Lam (Var 0)).
   Proof. reflexivity. Qed.
 
   Example named_context :

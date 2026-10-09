@@ -62,7 +62,7 @@
     and uniqueness of synthesized types up to conversion are further
     obligations behind completeness. *)
 
-From Stdlib Require Import List.
+From Stdlib Require Import List Bool Arith.
 Import ListNotations.
 From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder.
 
@@ -159,3 +159,42 @@ Definition btype (S : spec) (G : ctx) (A : term) : Prop :=
 Definition normalizing_types (S : spec) : Prop :=
   forall G A, bwf_ctx S G -> btype S G A ->
     exists v, A ⇝ₙ* v /\ nf v.
+
+(** ** Extending the context from below
+
+    A judgment about a term whose free variables point into the innermost
+    part [D] of the context holds whatever lies below [D]: the rules look
+    up only variables of the term.  In particular, a closed term typed in
+    the empty context is typed in every context. *)
+
+Combined Scheme synth_chk_mut from synth_mut, chk_mut.
+
+Lemma lookup_app_lt : forall D G1 G2 n,
+  n < length D -> lookup (D ++ G1) n = lookup (D ++ G2) n.
+Proof. intros D G1 G2 n H. unfold lookup. now rewrite !nth_error_app1 by exact H. Qed.
+
+Theorem bidir_weaken : forall S,
+  (forall G t A, S ;; G ⊢ t ⇑ A -> forall D G1 G2, G = D ++ G1 ->
+     closed_above (length D) t = true -> S ;; D ++ G2 ⊢ t ⇑ A) /\
+  (forall G t A, S ;; G ⊢ t ⇓ A -> forall D G1 G2, G = D ++ G1 ->
+     closed_above (length D) t = true -> S ;; D ++ G2 ⊢ t ⇓ A).
+Proof.
+  intros S. apply synth_chk_mut; intros; subst; cbn [closed_above] in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    repeat match goal with
+    | IH : forall D' G1' G2', ?Gx = D' ++ G1' -> _ -> _ |- _ =>
+        first [ specialize (IH D G1 G2 eq_refl) | specialize (IH (_ :: D) G1 G2 eq_refl) ]
+    end.
+  (* variables: the lookup stays inside [D] *)
+  2: { constructor. rewrite <- (lookup_app_lt D G1 G2 n); [assumption | ].
+       now apply Nat.ltb_lt. }
+  all: econstructor; eauto.
+Qed.
+
+Corollary synth_closed : forall S G t A,
+  S ;; [] ⊢ t ⇑ A -> closed t = true -> S ;; G ⊢ t ⇑ A.
+Proof. intros S G t A H Hc. exact (proj1 (bidir_weaken S) _ _ _ H [] [] G eq_refl Hc). Qed.
+
+Corollary chk_closed : forall S G t A,
+  S ;; [] ⊢ t ⇓ A -> closed t = true -> S ;; G ⊢ t ⇓ A.
+Proof. intros S G t A H Hc. exact (proj2 (bidir_weaken S) _ _ _ H [] [] G eq_refl Hc). Qed.

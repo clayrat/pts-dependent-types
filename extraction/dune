@@ -19,6 +19,11 @@
  (modules main)
  (libraries deptypes deptypes_pretty))
 
+(executable
+ (name slow)
+ (modules slow)
+ (libraries deptypes deptypes_pretty))
+
 (test
  (name regress)
  (modules regress)

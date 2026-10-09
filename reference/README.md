@@ -18,6 +18,12 @@ strictness programs. The differential test compares the terms, their complete
 typing traces in U⁻, and their bounded normal-order results and decoded
 numerals with the extract.
 
+`translate.ml` is a native PCF-to-U- translator with its own PCF syntax and two
+mutually recursive functions following the bidirectional PCF checker. The
+differential test compares its translations and first errors with the extracted
+`translate` on every program of `Programs.v`, on ill-typed programs, open
+contexts and shadowing, and the normal-order results of short translations.
+
 Run the examples directly, as with `strictness-pcf/reference/pcf_native.ml`:
 
 ```sh

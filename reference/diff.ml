@@ -5,6 +5,28 @@ module X = Deptypes
 module N = Pts_native
 module L = Looping
 module E = Encodings
+module T = Translate
+
+(* Extracted PCF syntax, as the native translator's. *)
+let rec pty_of = function X.Tnat -> T.Nat | X.Tarr (a, b) -> T.Arrow (pty_of a, pty_of b)
+
+let rec pterm_of = function
+  | X.Tvar x -> T.Var x
+  | X.Tlam (x, b) -> T.Lam (x, pterm_of b)
+  | X.Tapp (f, a) -> T.App (pterm_of f, pterm_of a)
+  | X.Tnum n -> T.Num n
+  | X.Tsucc u -> T.Succ (pterm_of u)
+  | X.Tpred u -> T.Pred (pterm_of u)
+  | X.Tifz (c, a, b) -> T.Ifz (pterm_of c, pterm_of a, pterm_of b)
+  | X.Tfix (a, u) -> T.Fix (pty_of a, pterm_of u)
+  | X.Tann (u, a) -> T.Ann (pterm_of u, pty_of a)
+
+let pcf_error_of = function
+  | X.E_Unbound x -> T.Unbound x
+  | X.E_NoSynth t -> T.NoSynth (pterm_of t)
+  | X.E_NotFun (t, a) -> T.NotFun (pterm_of t, pty_of a)
+  | X.E_LamNotFun (t, a) -> T.LamNotFun (pterm_of t, pty_of a)
+  | X.E_Mismatch (t, e, i) -> T.Mismatch (pterm_of t, pty_of e, pty_of i)
 
 let sort_of_extracted = function
   | X.Star -> N.Star | X.Box -> N.Box | X.Tri -> N.Tri | X.Univ i -> N.Univ i
@@ -266,4 +288,52 @@ let () =
       (match native with N.NormalForm v -> E.decode_nat v | _ -> None)
       (match X.normalize observe_fuel t with X.NormalForm v -> decode_nat v | _ -> None))
     strictness_cases E.strictness_cases;
+  (* The translator: the same translations and the same first errors. *)
+  let translation_of_extracted = function
+    | X.Ok (g, u) -> Stdlib.Ok (List.map term_of_extracted g, term_of_extracted u)
+    | X.Err (X.TrIllTyped e) -> Stdlib.Error (T.IllTyped (pcf_error_of e))
+    | X.Err (X.TrName x) -> Stdlib.Error (T.Name x)
+    | X.Err (X.TrTargetRejected _) | X.Err (X.TrTargetUndecided _) ->
+        failwith "the unchecked translation does not run the target checker"
+  in
+  let check_translate name g t a =
+    equal ("translate/" ^ name)
+      (T.translate (List.map (fun (x, a) -> (x, pty_of a)) g) (pterm_of t) (pty_of a))
+      (translation_of_extracted (X.translate g t a))
+  in
+  List.iter (fun ((name, t), _) -> check_translate name [] t Tnat) pcf_cases;
+  let nat_to_nat = Tarr (Tnat, Tnat) in
+  List.iter (fun (name, g, t, a) -> check_translate name g t a) [
+    "not a function", [], Tapp (Tnum 0, Tnum 1), Tnat;
+    "lambda at ℕ", [], Tlam ("x", Tvar "x"), Tnat;
+    "unbound", [], Tvar "y", Tnat;
+    "ifz synthesized", [], Tapp (Tifz (Tnum 0, Tnum 1, Tnum 2), Tnum 0), Tnat;
+    "mismatch", [], Tann (Tnum 0, nat_to_nat), Tnat;
+    "anonymous name", [], Tapp (Tann (Tlam ("_", Tvar "_"), nat_to_nat), Tnum 0), Tnat;
+    "open context", [("x", Tnat); ("f", nat_to_nat)], Tapp (Tvar "f", Tvar "x"), Tnat;
+    "shadowing", [("x", Tnat); ("x", nat_to_nat)], Tsucc (Tvar "x"), Tnat;
+    "fix at ℕ → ℕ", [], Tfix (nat_to_nat, Tlam ("g", Tvar "g")), nat_to_nat;
+  ];
+  (* Checked translations: both accept every program, with the same term. *)
+  List.iter (fun ((name, t), _) ->
+    let tag_x = function
+      | X.Ok u -> `Accepted (term_of_extracted u)
+      | X.Err (X.TrTargetRejected _) -> `Rejected
+      | X.Err (X.TrTargetUndecided _) -> `Undecided
+      | X.Err _ -> `Other in
+    let tag_n = function
+      | Stdlib.Ok u -> `Accepted u
+      | Stdlib.Error (T.TargetRejected _) -> `Rejected
+      | Stdlib.Error (T.TargetUndecided _) -> `Undecided
+      | Stdlib.Error _ -> `Other in
+    equal ("translate checked/" ^ name)
+      (tag_n (T.translate_program_checked looping_fuel (pterm_of t)))
+      (tag_x (X.translate_program_checked looping_fuel t))) pcf_cases;
+  (* Normal-order results of short translated programs. *)
+  List.iter (fun ((name, t), expected) ->
+    match expected, X.translate_program t, T.translate_program (pterm_of t) with
+    | Some k, X.Ok u, Stdlib.Ok nu when k <= 5 ->
+        equal ("translated/normalize/" ^ name)
+          (eval_to_extracted (N.normalize translation_fuel nu)) (X.normalize translation_fuel u)
+    | _ -> ()) pcf_cases;
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions

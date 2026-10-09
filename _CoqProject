@@ -12,6 +12,7 @@ vendor/strictness-pcf/theories/Checker.v
 vendor/strictness-pcf/theories/Subst.v
 vendor/strictness-pcf/theories/OperationalSemantics.v
 vendor/strictness-pcf/theories/Safety.v
+vendor/strictness-pcf/theories/Examples.v
 
 theories/Common/Result.v
 theories/Common/Traced.v
@@ -28,6 +29,9 @@ theories/PTS/CheckSound.v
 theories/Configs/Finite.v
 theories/Configs/Predicative.v
 theories/PCFTranslation/Source.v
+theories/PCFTranslation/Translate.v
+theories/PCFTranslation/Programs.v
+theories/PCFTranslation/TranslateSound.v
 theories/SystemU/Looping.v
 theories/SystemU/Encodings.v
 theories/Examples.v

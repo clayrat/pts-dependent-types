@@ -12,6 +12,8 @@ From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNa
 From DepTypes.PTS Require Import Syntax Named Spec Eval Check.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes.SystemU Require Import Looping Encodings.
+From DepTypes.PCFTranslation Require Import Translate Programs.
+From PCF Require Examples OperationalSemantics.
 From DepTypes Require Import Examples.
 
 Extraction Language OCaml.
@@ -29,7 +31,7 @@ Extract Inlined Constant PeanoNat.Nat.ltb => "(<)".
 
 Extraction "deptypes.ml"
   term_eqb sort_eqb rename lift subst subst1 arrow free_in map_sorts lookup
-  anon resolve resolve_ctx
+  resolve resolve_ctx
   lambda_star system_u system_u_minus predicative pure_predicative u_to_univ
   classify normalize_trace normalize whnf convert
   infer check run_infer run_check
@@ -38,4 +40,7 @@ Extraction "deptypes.ml"
   joinable looping looping_ty looping_applied looping_fuel unfolding_fuel unfolds_to
   CNat CBool ctrue cfalse czero csucc numeral cpair cfst csnd cshift cpred
   is_zero is_zero_lazy ifz ifz_lazy omega_nat omega_fun church church_nf decode_nat
-  observe observe_fuel verdict_of best_verdict encodings_typed typed_in_u_minus strictness_cases.
+  observe observe_fuel verdict_of best_verdict encodings_typed typed_in_u_minus strictness_cases
+  tr_ty tr translate translate_program translated_type translate_checked translate_program_checked
+  pcf_cases pcf_fuel translation_fuel fuel_for pcf_as_expected
+  PCF.Examples.add PCF.Examples.mul PCF.Examples.fact PCF.OperationalSemantics.evalFuel.

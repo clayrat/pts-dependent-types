@@ -1,6 +1,6 @@
 COQMAKEFILE ?= coq_makefile
 
-.PHONY: all rocq extract demo test check clean
+.PHONY: all rocq extract demo test test-slow check clean
 all: rocq
 
 vendor/strictness-pcf/theories/Ty.v:
@@ -23,6 +23,10 @@ demo:
 test:
 	$(MAKE) -C extraction test
 	$(MAKE) -C reference test
+
+# fact 4 = 24 through the PCF translation, about a minute.
+test-slow:
+	$(MAKE) -C extraction slow
 
 check: rocq test
 

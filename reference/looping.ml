@@ -12,12 +12,13 @@ type named =
   | Lambda of string * named
   | Apply of named * named
   | Annotate of named * named
+  | Arrow of named * named        (* binds nothing *)
 
 let star = Sort P.Star
 let box = Sort P.Box
 let name x = Name x
 let pi x a b = Product (x, a, b)
-let arrow a b = pi "_" a b
+let arrow a b = Arrow (a, b)
 let arrows domains codomain = List.fold_right arrow domains codomain
 let abs names body = List.fold_right (fun x body -> Lambda (x, body)) names body
 let call f args = List.fold_left (fun f arg -> Apply (f, arg)) f args
@@ -33,10 +34,9 @@ let ( let* ) = Result.bind
 let rec resolve names = function
   | Sort sort -> Ok (P.Srt sort)
   | Name x ->
-      if x = "_" then Error x
-      else (match index_of x names with
-            | Some index -> Ok (P.Var index)
-            | None -> Error x)
+      (match index_of x names with
+       | Some index -> Ok (P.Var index)
+       | None -> Error x)
   | Product (x, domain, codomain) ->
       let* domain = resolve names domain in
       let* codomain = resolve (x :: names) codomain in
@@ -52,6 +52,11 @@ let rec resolve names = function
       let* body = resolve names body in
       let* ty = resolve names ty in
       Ok (P.Ann (body, ty))
+  (* The codomain is resolved around the arrow and lifted past its binder. *)
+  | Arrow (domain, codomain) ->
+      let* domain = resolve names domain in
+      let* codomain = resolve names codomain in
+      Ok (P.Pi (domain, P.lift 1 codomain))
 
 let build names t =
   match resolve names t with
