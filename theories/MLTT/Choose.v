@@ -25,7 +25,7 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound Signature EmptySig.
 From DepTypes.Configs Require Import Predicative.
 From DepTypes.SystemU Require Import Looping.
 
@@ -84,8 +84,8 @@ Proof. vm_compute. reflexivity. Qed.
 (** ** Typing and evaluation *)
 
 Lemma accepted_check : forall S fuel G t A,
-  snd (run_check S fuel G t A) = Accepted tt -> S ;; G ⊢ t ⇓ A.
-Proof. intros S fuel G t A H. exact (proj2 (proj2 (run_check_sound S fuel G t A tt H))). Qed.
+  snd (run_check S ∅ fuel G t A) = Accepted tt -> S ;; G ⊢ t ⇓ A.
+Proof. intros S fuel G t A H. exact (proj2 (proj2 (run_check_sound S ∅ fuel G t A tt H))). Qed.
 
 Theorem choose_typed :
   predicative ;; in_ctx types_ctx ⊢ term_in types_ctx choose ⇓ term_in types_ctx choose_ty.
@@ -104,18 +104,18 @@ Proof. apply (accepted_check _ choose_fuel). vm_compute. reflexivity. Qed.
 (** The type synthesized for [choose true a c] is [if true then A else B]
     itself; conversion computes it to [A]. *)
 Example choose_true_synthesizes :
-  snd (run_infer predicative choose_fuel (in_ctx args_ctx) (term_in args_ctx (choose_at NTrue)))
+  snd (run_infer predicative ∅ choose_fuel (in_ctx args_ctx) (term_in args_ctx (choose_at NTrue)))
   = Accepted (term_in args_ctx (cond NTrue)).
 Proof. vm_compute. reflexivity. Qed.
 
 Example cond_true_computes :
-  normalize choose_fuel (term_in args_ctx (cond NTrue)) = NormalForm (term_in args_ctx "A").
+  normalize ∅ choose_fuel (term_in args_ctx (cond NTrue)) = NormalForm (term_in args_ctx "A").
 Proof. vm_compute. reflexivity. Qed.
 
 (** [choose true a c] evaluates to [a], [choose false a c] to [c]. *)
 Example choose_evaluates :
-  normalize choose_fuel (term_in args_ctx (choose_at NTrue)) = NormalForm (term_in args_ctx "a") /\
-  normalize choose_fuel (term_in args_ctx (choose_at NFalse)) = NormalForm (term_in args_ctx "c").
+  normalize ∅ choose_fuel (term_in args_ctx (choose_at NTrue)) = NormalForm (term_in args_ctx "a") /\
+  normalize ∅ choose_fuel (term_in args_ctx (choose_at NFalse)) = NormalForm (term_in args_ctx "c").
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ** A free boolean *)
@@ -124,18 +124,18 @@ Proof. split; vm_compute; reflexivity. Qed.
     else B], whose normal form is a neutral eliminator, and it does not
     check against [A]. *)
 Example choose_open_synthesizes :
-  snd (run_infer predicative choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b")))
+  snd (run_infer predicative ∅ choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b")))
   = Accepted (term_in open_ctx (cond "b")).
 Proof. vm_compute. reflexivity. Qed.
 
 Example cond_open_neutral :
-  normalize choose_fuel (term_in open_ctx (cond "b"))
+  normalize ∅ choose_fuel (term_in open_ctx (cond "b"))
   = NormalForm (ElimBool (Lam (Srt (Univ 0))) (term_in open_ctx "A") (term_in open_ctx "B")
                          (term_in open_ctx "b")).
 Proof. vm_compute. reflexivity. Qed.
 
 Example choose_open_not_A :
-  snd (run_check predicative choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b"))
+  snd (run_check predicative ∅ choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b"))
          (term_in open_ctx "A"))
   = Rejected (EMismatch (term_in open_ctx (choose_at "b")) (term_in open_ctx "A")
                         (term_in open_ctx (cond "b"))).
@@ -156,7 +156,7 @@ Example swapped_terms_resolve :
 Proof. vm_compute. reflexivity. Qed.
 
 Example choose_swapped_rejected :
-  snd (run_check predicative choose_fuel (in_ctx types_ctx)
+  snd (run_check predicative ∅ choose_fuel (in_ctx types_ctx)
          (term_in types_ctx choose_swapped) (term_in types_ctx choose_ty))
   = Rejected (EMismatch (build body_names "y") (build body_names (choose_family NTrue))
                         (build body_names "B")).
@@ -170,6 +170,6 @@ Example low_family_resolves : resolves [] low_family = true.
 Proof. reflexivity. Qed.
 
 Example low_family_rejected :
-  snd (run_infer predicative choose_fuel [] (build [] low_family))
+  snd (run_infer predicative ∅ choose_fuel [] (build [] low_family))
   = Rejected (EMismatch (Srt (Univ 0)) (Srt (Univ 0)) (Srt (Univ 1))).
 Proof. vm_compute. reflexivity. Qed.

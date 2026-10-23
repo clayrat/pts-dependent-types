@@ -24,7 +24,7 @@
 From Stdlib Require Import String List.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Bidir Check CheckSound Signature EmptySig.
 From DepTypes.Configs Require Import Finite.
 From DepTypes.SystemU Require Import Looping Encodings.
 From PCF Require Ty Syntax Context Checker.
@@ -153,7 +153,7 @@ Definition translate_checked (fuel : nat) (G : pcf_ctx) (t : pcf_term) (A : pcf_
   match translate G t A with
   | Err e => Err e
   | Ok (G', u) =>
-      match snd (run_check system_u_minus fuel G' u (translated_type A)) with
+      match snd (run_check system_u_minus ∅ fuel G' u (translated_type A)) with
       | Accepted _ => Ok (G', u)
       | Rejected e => Err (TrTargetRejected e)
       | Undecided v => Err (TrTargetUndecided v)
@@ -169,15 +169,15 @@ Definition translate_program_checked (fuel : nat) (t : pcf_term) : result tr_err
 Lemma translate_checked_sound : forall fuel G t A G' u,
   translate_checked fuel G t A = Ok (G', u) ->
   translate G t A = Ok (G', u) /\
-  bwf_ctx system_u_minus G' /\ btype system_u_minus G' (translated_type A) /\
+  bwf_ctx system_u_minus ∅ G' /\ btype system_u_minus ∅ G' (translated_type A) /\
   system_u_minus ;; G' ⊢ u ⇓ translated_type A.
 Proof.
   intros fuel G t A G' u H. unfold translate_checked in H.
   destruct (translate G t A) as [[G0 u0]|e] eqn:E; [ | discriminate H].
-  destruct (snd (run_check system_u_minus fuel G0 u0 (translated_type A))) as [v|e|v] eqn:R;
+  destruct (snd (run_check system_u_minus ∅ fuel G0 u0 (translated_type A))) as [v|e|v] eqn:R;
     try discriminate H.
   injection H as <- <-. split; [reflexivity | ].
-  exact (run_check_sound _ _ _ _ _ _ R).
+  exact (run_check_sound _ _ _ _ _ _ _ R).
 Qed.
 
 Lemma translate_program_checked_sound : forall fuel t u,

@@ -1,0 +1,182 @@
+In events, #k is the free variable with de Bruijn index k.
+
+== U⁻: the polymorphic identity applied, id A x
+  A : ∗, x : A ⊢ ((λB. λy. y) : ΠB:∗. B → B) A x ⇑ ?
+context entry A : ∗
+  axiom ∗ : □
+context entry x : A
+term: ((λB. λy. y) : ΠB:∗. B → B) A x
+  axiom ∗ : □
+  rule (∗, ∗, ∗)
+  rule (□, ∗, ∗)
+  λx. λy. y : ΠA:∗. A → A
+  λx. x : #0 → #0
+  #1 ≡ #1
+  ((λA. λx. x) : ΠA:∗. A → A) : ΠA:∗. A → A
+  ∗ ≡ ∗
+  argument #1 : ∗
+  codomain [#1/x] x → x = #1 → #1
+  ((λA. λx. x) : ΠA:∗. A → A) #1 : #1 → #1
+  #1 ≡ #1
+  argument #0 : #1
+  codomain [#0/x] #1 = #1
+accepted: A
+
+== U⁻: types do not depend on terms, no rule (∗, □)
+  A : ∗ ⊢ A → ∗ ⇑ ?
+context entry A : ∗
+  axiom ∗ : □
+term: A → ∗
+  axiom ∗ : □
+rejected: no rule (∗, □, _) for #0 → ∗
+
+== U⁻: primitives are off
+  · ⊢ Bool ⇑ ?
+term: Bool
+rejected: Bool: the primitives are off in this system
+
+== Predicative: ΠA:Type₀. A → A lives in Type₁
+  · ⊢ ΠA:Type₀. A → A ⇑ ?
+term: ΠA:Type₀. A → A
+  axiom Type₀ : Type₁
+  rule (Type₀, Type₀, Type₀)
+  rule (Type₁, Type₀, Type₁)
+accepted: Type₁
+
+== Predicative: ... and not in Type₀
+  · ⊢ ΠA:Type₀. A → A ⇓ Type₀
+expected type: Type₀
+term: ΠA:Type₀. A → A
+  axiom Type₀ : Type₁
+  rule (Type₀, Type₀, Type₀)
+  rule (Type₁, Type₀, Type₁)
+rejected: ΠA:Type₀. A → A has type Type₁, expected Type₀
+
+== Predicative: large elimination computes the type Unit
+  · ⊢ tt ⇓ elimBool ((λx. Type₀) : Bool → Type₁) Unit Bool true
+expected type: elimBool ((λx. Type₀) : Bool → Type₁) Unit Bool true
+  axiom Type₁ : Type₂
+  rule (Type₀, Type₂, Type₂)
+  λx. Type₀ : Bool → Type₁
+  axiom Type₀ : Type₁
+  Type₁ ≡ Type₁
+  ((λx. Type₀) : Bool → Type₁) : Bool → Type₁
+  family ((λx. Type₀) : Bool → Type₁) over Bool into Type₁
+  Type₀ ≡ ((λx. Type₀) : Bool → Type₁) true, both ⇝ Type₀
+  Type₀ ≡ ((λx. Type₀) : Bool → Type₁) false, both ⇝ Type₀
+  Bool ≡ Bool
+  elimBool ((λx. Type₀) : Bool → Type₁) Unit Bool true : ((λx. Type₀) : Bool → Type₁) true ⇝ Type₀
+term: tt
+  Unit ≡ elimBool ((λx. Type₀) : Bool → Type₁) Unit Bool true, both ⇝ Unit
+accepted
+
+== Raw Ω under normal order, 3 steps
+  0. (λx. x x) (λx. x x)
+  1. (λx. x x) (λx. x x)
+  2. (λx. x x) (λx. x x)
+  3. (λx. x x) (λx. x x)
+out of fuel at (λx. x x) (λx. x x)
+
+== U⁻: the looping combinator L₀ from Hurkens' paradox
+  ⊢ L₀ ⇑ ?   (2339 trace events)
+accepted: ΠA:∗. (A → A) → A
+
+== Predicative: L₀ with ∗, □, △ read as Type₀, Type₁, Type₂
+  ⊢ L₀ ⇑ ?   (161 trace events before the failure)
+rejected: Πx:(ΠA:Type₁. (… → …) → A → Type₀) → Type₀. (… : …) #0 x → #0 x has type Type₂, expected Type₀
+
+== U⁻: L₀ β f reaches f M by normal order (β : ∗, f : β → β)
+  0. (… : …) β f
+  1. (λx. …) β f
+  2. (λx. … …) f
+  3. ((λx. …) : … → β) ((λx. …) : Πx:…. …)
+  4. (λx. … …) ((λx. …) : Πx:…. …)
+  5. … … (λx. …) (λx. … …)
+  6. … … (λx. …) (λx. … …)
+  7. (λx. …) (λx. …) (λx. … …)
+  8. … … (λx. …) (λx. … …)
+  9. (λx. …) (λx. …) (λx. … …)
+  10. (λx. f …) (λx. … …)
+  11. f (… … (λx. …))
+out of fuel at f (… … (λx. …))
+
+== U⁻: M meets L₁ β f, and so on: Lₙ β f =β f (Lₙ₊₁ β f)
+  n = 0: true
+  n = 1: true
+  n = 2: true
+
+== U⁻: Church numerals with the zero test strict in the whole numeral
+  (λx:ℕ. 0) Ω                          : ℕ        0                               the PCF result
+  ifz (succ Ω) then 0 else 1           : ℕ        no normal form within the fuel  no result within the limit (PCF diverges)
+  ifz 0 then 7 else Ω                  : ℕ        7                               the PCF result
+  ifz 1 then Ω else 7                  : ℕ        7                               the PCF result
+  pred 0                               : ℕ        0                               the PCF result
+  pred Ω                               : ℕ        no normal form within the fuel  no result within the limit (PCF diverges)
+  ifz (pred (succ Ω)) then 0 else 1    : ℕ        no normal form within the fuel  no result within the limit (PCF diverges)
+  succ Ω                               : ℕ        no normal form within the fuel  no result within the limit (PCF diverges)
+  (ifz 0 then succ else pred) 5        : ℕ        6                               the PCF result
+  (ifz 1 then succ else pred) 5        : ℕ        4                               the PCF result
+  (ifz (succ Ω) then succ else pred) 5 : ℕ        no normal form within the fuel  no result within the limit (PCF diverges)
+  (ifz 0 then succ else Ω_ℕ→ℕ) 5       : ℕ        6                               the PCF result
+  No result within the limit is not a proof of divergence.
+
+== U⁻: the usual lazy test answers where PCF diverges
+  ifz_lazy (succ Ω) then 0 else 1 = 1, which contradicts PCF
+
+== PCF → U⁻: programs, PCF evaluator, and the translation by normal order
+  Each translation is checked against ℕ by the U⁻ checker before it runs.
+  (λx:ℕ. 0) Ω                          PCF 0                          U⁻ : ℕ 0                               agrees
+  ifz (succ Ω) then 0 else 1           PCF no value within the fuel   U⁻ : ℕ no normal form within the fuel  no result within the limit
+  ifz 0 then 7 else Ω                  PCF 7                          U⁻ : ℕ 7                               agrees
+  ifz 1 then Ω else 7                  PCF 7                          U⁻ : ℕ 7                               agrees
+  pred 0                               PCF 0                          U⁻ : ℕ 0                               agrees
+  pred Ω                               PCF no value within the fuel   U⁻ : ℕ no normal form within the fuel  no result within the limit
+  ifz (pred (succ Ω)) then 0 else 1    PCF no value within the fuel   U⁻ : ℕ no normal form within the fuel  no result within the limit
+  succ Ω                               PCF no value within the fuel   U⁻ : ℕ no normal form within the fuel  no result within the limit
+  (ifz 0 then succ else pred) 5        PCF 6                          U⁻ : ℕ 6                               agrees
+  (ifz 1 then succ else pred) 5        PCF 4                          U⁻ : ℕ 4                               agrees
+  (ifz 0 then succ else Ω_ℕ→ℕ) 5       PCF 6                          U⁻ : ℕ 6                               agrees
+  add 2 3                              PCF 5                          U⁻ : ℕ 5                               agrees
+  mul 2 3                              PCF 6                          U⁻ : ℕ 6                               agrees
+  fact 0                               PCF 1                          U⁻ : ℕ 1                               agrees
+  fact 1                               PCF 1                          U⁻ : ℕ 1                               agrees
+  fact 2                               PCF 2                          U⁻ : ℕ 2                               agrees
+  fact 3                               PCF 6                          U⁻ : ℕ 6                               agrees
+  (λ_. _) 0                            PCF 0                          U⁻ : ℕ 0                               agrees
+  fact 4 = 24 takes about 1.4 million steps: make -C extraction slow
+
+== Predicative MLTT: choose : Πb:Bool. A → B → (if b then A else B)
+  A : Type₀, B : Type₀ ⊢ choose ⇓ Πx:Bool. A → B → elimBool ((λy. Type₀) : Bool → Type₁) A B x
+accepted
+
+== Predicative MLTT: choose true a c ⇓ A, with a : A and c : B
+  argument true : Bool
+    the rest of the type: A → B → elimBool (… : …) A B true
+  argument a : A
+    the rest of the type: B → elimBool ((λx. Type₀) : Bool → Type₁) A B true
+  argument c : B
+    the rest of the type: elimBool ((λx. Type₀) : Bool → Type₁) A B true
+  conversion: elimBool ((λx. Type₀) : Bool → Type₁) A B true ≡ A, both ⇝ A
+accepted
+  choose true a c by normal order: normal form a
+  choose false a c by normal order: normal form c
+
+== Predicative MLTT: with b : Bool free, the type stays neutral
+  choose b a c ⇑ elimBool ((λx. Type₀) : Bool → Type₁) A B b
+  its normal form: normal form elimBool (λx. Type₀) A B b
+  choose b a c ⇓ A: rejected: … a c has type elimBool (… : …) A B b, expected A
+
+== Predicative MLTT: errors
+  branches swapped: rejected: #0 has type #3, expected ((λx. …) : Bool → Type₀) true
+  (λ_. Type₀) ∷ Bool → Type₀: rejected: Type₀ has type Type₁, expected Type₀
+
+== Predicative MLTT: Void in a non-empty context
+  A : Type₀, v : Void ⊢ elimVoid ((λx. A) : Void → Type₀) v ⇓ A: accepted
+  its normal form: normal form elimVoid (λx. A) v
+
+== Predicative MLTT: the dependent eliminator of Unit, C u = elimUnit (λ_. Type₀) Bool u
+  ⊢ elimUnit C true tt ⇑ ((λx. …) : Unit → Type₀) tt
+  C tt by normal order: normal form Bool
+  elimUnit C true tt by normal order: normal form true
+  u : Unit ⊢ elimUnit C true u ⇓ Bool: rejected: elimUnit ((λx. …) : Unit → Type₀) true u has type ((λx. …) : Unit → Type₀) u, expected Bool
+  (no η for Unit: C u stays neutral and is not Bool)

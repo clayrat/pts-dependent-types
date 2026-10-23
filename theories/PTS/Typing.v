@@ -9,7 +9,15 @@
     - when [spec_prim S = Some s0], the primitives Void, Unit, Bool with
       their constructors and dependent eliminators.  An eliminator takes a
       result family [C : Πx:T. s] for an arbitrary sort [s]; for [s] a
-      universe this is large elimination.
+      universe this is large elimination;
+    - Σ formed by the rules [spec_sigma S], pairs and projections, the
+      second one at [B[fst p/0]];
+    - when [spec_decls S], the constants of a signature [sg] at their
+      closed types.
+
+    Conversion is that of the signature; the judgment is
+    [has_type S sg Γ t A], and PTS.EmptySig gives the notation
+    [S ;; Γ ⊢ t ∈ A] for the empty signature.
 
     In [T_App] the argument is substituted into the type of the result,
     [B[u/0]]: this is where terms enter types.
@@ -22,12 +30,14 @@
 
 From Stdlib Require Import List.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Reduction.
+From DepTypes.PTS Require Import Syntax Spec Signature Reduction.
 
 Reserved Notation "S ;; G ⊢ t ∈ A" (at level 70, G at next level, t at next level).
 
 Section Typing.
   Variable S : spec.
+  Variable sg : signature.
+  Local Notation "t ≡ u" := (conv sg t u).
 
   Inductive wf_ctx : ctx -> Prop :=
   | W_Nil : wf_ctx []
@@ -99,21 +109,56 @@ Section Typing.
       has_type G t (App C BTrue) ->
       has_type G f (App C BFalse) ->
       has_type G b Bool ->
-      has_type G (ElimBool C t f b) (App C b).
+      has_type G (ElimBool C t f b) (App C b)
+  (** dependent pairs *)
+  | T_Sigma : forall G A B s1 s2 s3,
+      has_type G A (Srt s1) ->
+      has_type (A :: G) B (Srt s2) ->
+      spec_sigma S s1 s2 = Some s3 ->
+      has_type G (Sigma A B) (Srt s3)
+  | T_Pair : forall G A B a b s,
+      has_type G (Sigma A B) (Srt s) ->
+      has_type G a A ->
+      has_type G b (subst1 B a) ->
+      has_type G (Pair a b) (Sigma A B)
+  | T_Fst : forall G p A B,
+      has_type G p (Sigma A B) ->
+      has_type G (Fst p) A
+  | T_Snd : forall G p A B,
+      has_type G p (Sigma A B) ->
+      has_type G (Snd p) (subst1 B (Fst p))
+  (** constants *)
+  | T_Const : forall G g A,
+      wf_ctx G -> spec_decls S = true -> sig_type sg g = Some A ->
+      has_type G (Const g) A.
+
+  Scheme wf_ctx_mut := Induction for wf_ctx Sort Prop
+    with has_type_mut := Induction for has_type Sort Prop.
 End Typing.
 
-Notation "S ;; G ⊢ t ∈ A" := (has_type S G t A).
+(** ** Type-correct signatures
 
-Scheme wf_ctx_mut := Induction for wf_ctx Sort Prop
-  with has_type_mut := Induction for has_type Sort Prop.
+    A signature carries only closedness, and the checker trusts the types
+    of its constants.  The declarative metatheory needs more: the type of
+    every constant is a type, every δ-body has the type of its constant,
+    and every ι-contraction of an instance with active rules keeps the
+    type of the redex.  Checking each ι-rule against one type in the
+    generic context of its parameters, motive, methods and fields, as the
+    procedures registering instances do, is the local form of the last
+    condition. *)
+
+Definition signature_typed (S : spec) (sg : signature) : Prop :=
+  (forall g A, sig_type sg g = Some A -> exists s, has_type S sg [] A (Srt s)) /\
+  (forall g A b, sig_type sg g = Some A -> sig_delta sg g = Some b -> has_type S sg [] b A) /\
+  (forall G t u T, iota sg t = Some u -> has_type S sg G t T -> has_type S sg G u T).
 
 (** Every typable sort is a sort of the system.  This is where the
     invariant [spec_wf] is needed: the typing rules do not consult
     [spec_sort] themselves. *)
-Lemma typed_sort_in_spec : forall S G s A,
-    S ;; G ⊢ Srt s ∈ A -> spec_sort S s = true.
+Lemma typed_sort_in_spec : forall S sg G s A,
+    has_type S sg G (Srt s) A -> spec_sort S s = true.
 Proof.
-  intros S G s A H. remember (Srt s) as t eqn:Et.
+  intros S sg G s A H. remember (Srt s) as t eqn:Et.
   induction H; try discriminate.
   - injection Et as ->. edestruct spec_axiom_sorts as [Hs _]; [eassumption | exact Hs].
   - auto.

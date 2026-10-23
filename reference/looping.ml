@@ -13,10 +13,15 @@ type named =
   | Apply of named * named
   | Annotate of named * named
   | Arrow of named * named        (* binds nothing *)
-  | Const of P.term               (* a closed atom: a primitive type or constructor *)
+  | Const of P.term               (* a closed atom: a primitive, or a constant *)
   | ElimVoid of named * named
   | ElimUnit of named * named * named
   | ElimBool of named * named * named * named
+  | Sum of string * named * named   (* Σx:A. B *)
+  | Times of named * named          (* A × B, binds nothing *)
+  | Pairing of named * named
+  | First of named
+  | Second of named
 
 let star = Sort P.Star
 let box = Sort P.Box
@@ -77,6 +82,20 @@ let rec resolve names = function
       let* domain = resolve names domain in
       let* codomain = resolve names codomain in
       Ok (P.Pi (domain, P.lift 1 codomain))
+  | Sum (x, first, second) ->
+      let* first = resolve names first in
+      let* second = resolve (x :: names) second in
+      Ok (P.Sigma (first, second))
+  | Times (first, second) ->
+      let* first = resolve names first in
+      let* second = resolve names second in
+      Ok (P.Sigma (first, P.lift 1 second))
+  | Pairing (a, b) ->
+      let* a = resolve names a in
+      let* b = resolve names b in
+      Ok (P.Pair (a, b))
+  | First p -> let* p = resolve names p in Ok (P.Fst p)
+  | Second p -> let* p = resolve names p in Ok (P.Snd p)
 
 let build names t =
   match resolve names t with

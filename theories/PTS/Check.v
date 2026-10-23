@@ -1,9 +1,11 @@
 (** * The PTS checker: [infer] and [check]
 
-    One program for every specification: sorts, axioms and Π-rules are
-    looked up in [S], and the primitives Void, Unit, Bool are accepted only
-    when [spec_prim S] switches them on.  The rules are those of the
-    annotated kernel PTS.Bidir.
+    One program for every specification: sorts, axioms, Π- and Σ-rules
+    are looked up in [S], the primitives Void, Unit, Bool are accepted
+    only when [spec_prim S] switches them on, and constants only when
+    [spec_decls S] does; a constant takes its closed type from the
+    signature [sg], and one missing from it is rejected.  The rules are
+    those of the annotated kernel PTS.Bidir.
 
     Recursion is structural on the term; [fuel] bounds only the evaluation
     done for types, by [whnf] (unfolding a type to a sort or a Π) and by
@@ -14,7 +16,7 @@
     then substituted into the codomain, never reduced.
 
     Both modes are one function [tc]: [tc Γ t None] synthesizes, and
-    [tc Γ t (Some T)] checks against [T].  The synthesis rules are written
+    [tc Γ t (Some T)] checks against [T].  λ and pairs only check.  The synthesis rules are written
     once, in the thunk [synth]; checking a non-λ runs it and compares.
     (Separate mutual [infer] and [check] would have to repeat every
     synthesis rule inside [check], since a call [infer Γ t] on the term
@@ -32,7 +34,7 @@
 From Stdlib Require Import List.
 Import ListNotations.
 From DepTypes.Common Require Import Result Traced.
-From DepTypes.PTS Require Import Syntax Spec Eval.
+From DepTypes.PTS Require Import Syntax Spec Signature Eval.
 
 Inductive error : Type :=
 | EUnboundVar : nat -> error
@@ -45,8 +47,12 @@ Inductive error : Type :=
 | EStuckType : term -> term -> term -> error  (** term, expected, inferred *)
 | ECannotInfer : term -> error           (** a λ in a synthesizing position *)
 | ENoPrimitives : term -> error          (** a primitive while they are off *)
-| EBadFamily : term -> term -> term -> error.
+| EBadFamily : term -> term -> term -> error
     (** result family, expected domain (Void, Unit or Bool), actual domain *)
+| ENoSigmaRule : term -> sort -> sort -> error   (** a Σ-type and its missing rule *)
+| ENotASigma : term -> term -> error     (** a pair or projected term and its type, not a Σ *)
+| ENoDecls : term -> error               (** a constant while constants are off *)
+| EUnknownConst : gref -> error.         (** a constant missing from the signature *)
 
 (** The events of a run.  A run of an entry point has three phases, each
     opened by a marker: the entries of the context, from the outermost
@@ -65,7 +71,10 @@ Inductive event : Type :=
 | EvArg : term -> term -> event                  (** argument [u] checked against [A] *)
 | EvSubst : term -> term -> term -> event        (** [B], [u], [B[u/0]] *)
 | EvConv : term -> term -> term -> event         (** inferred [A] ≡ expected [T], both reaching [V] *)
-| EvFamily : term -> term -> sort -> event.      (** result family [C] over [D] into [s] *)
+| EvFamily : term -> term -> sort -> event       (** result family [C] over [D] into [s] *)
+| EvSigmaRule : sort -> sort -> sort -> event    (** the Σ-rule [(s1, s2, s3)] *)
+| EvUnfoldSigma : term -> term -> term -> term -> event.
+    (** [t]: its type [T] unfolds to Σ A. B *)
 
 (** Inside the checker a run fails either by rejecting the input or by
     running out of fuel while typing a term. *)
@@ -92,6 +101,7 @@ Definition to_answer {A} (r : result failure A) : answer A :=
 
 Section Check.
   Variable S : spec.
+  Variable sg : signature.
   Variable fuel : nat.
 
   Definition M (A : Type) : Type := traced event failure A.
@@ -117,9 +127,18 @@ Section Check.
     | None => reject (ENoPrimitives t)
     end.
 
+  Definition sigma_rule (t : term) (s1 s2 : sort) : M sort :=
+    match spec_sigma S s1 s2 with
+    | Some s3 => let! _ := temit (EvSigmaRule s1 s2 s3) in tret s3
+    | None => reject (ENoSigmaRule t s1 s2)
+    end.
+
+  Definition decls (t : term) : M unit :=
+    if spec_decls S then tret tt else reject (ENoDecls t).
+
   (** [T], the type of [t], unfolded to a sort. *)
   Definition as_sort (t T : term) : M sort :=
-    match whnf fuel T with
+    match whnf sg fuel T with
     | HeadForm (Srt s) =>
         match T with
         | Srt _ => tret s
@@ -131,15 +150,23 @@ Section Check.
 
   (** [T], the type of [t], unfolded to a Π. *)
   Definition as_pi (t T : term) : M (term * term) :=
-    match whnf fuel T with
+    match whnf sg fuel T with
     | HeadForm (Pi A B) => let! _ := temit (EvUnfoldPi t T A B) in tret (A, B)
     | HeadForm T' => reject (ENotAPi t T')
     | HeadOutOfFuel _ => no_fuel t
     end.
 
+  (** [T], the type of [t], unfolded to a Σ. *)
+  Definition as_sigma (t T : term) : M (term * term) :=
+    match whnf sg fuel T with
+    | HeadForm (Sigma A B) => let! _ := temit (EvUnfoldSigma t T A B) in tret (A, B)
+    | HeadForm T' => reject (ENotASigma t T')
+    | HeadOutOfFuel _ => no_fuel t
+    end.
+
   (** [t] has the inferred type [A] and the expected type [T]. *)
   Definition check_conv (t A T : term) : M unit :=
-    match convert fuel A T with
+    match convert sg fuel A T with
     | ConvEqual V => temit (EvConv A T V)
     | ConvDifferent => reject (EMismatch t T A)
     | ConvStuck => reject (EStuckType t T A)
@@ -151,7 +178,7 @@ Section Check.
   Definition family (C TC D0 : term) : M unit :=
     let! p := as_pi C TC in
     let (D, K) := p in
-    match convert fuel D D0 with
+    match convert sg fuel D D0 with
     | ConvEqual _ =>
         let! s := as_sort C K in
         temit (EvFamily C D0 s)
@@ -214,6 +241,30 @@ Section Check.
           let! _ := tc G bf (Some (App C BFalse)) in
           let! _ := tc G b (Some Bool) in
           tret (App C b)
+      | Sigma A B =>
+          let! s1 := sort_of G A in
+          let! s2 := sort_of (A :: G) B in
+          let! s3 := sigma_rule t s1 s2 in
+          tret (Srt s3)
+      | Pair _ _ => reject (ECannotInfer t)
+      | Fst p =>
+          let! P := tc G p None in
+          let! q := as_sigma p P in
+          let (A, _) := q in
+          tret A
+      | Snd p =>
+          let! P := tc G p None in
+          let! q := as_sigma p P in
+          let (_, B) := q in
+          let B' := subst1 B (Fst p) in
+          let! _ := temit (EvSubst B (Fst p) B') in
+          tret B'
+      | Const g =>
+          let! _ := decls t in
+          match sig_type sg g with
+          | Some A => tret A
+          | None => reject (EUnknownConst g)
+          end
       end in
     match expected, t with
     | None, _ => synth tt
@@ -221,6 +272,14 @@ Section Check.
         let! p := as_pi t T in
         let (A, B) := p in
         let! _ := tc (A :: G) b (Some B) in
+        tret T
+    | Some T, Pair a b =>
+        let! p := as_sigma t T in
+        let (A, B) := p in
+        let! _ := tc G a (Some A) in
+        let B' := subst1 B a in
+        let! _ := temit (EvSubst B a B') in
+        let! _ := tc G b (Some B') in
         tret T
     | Some T, _ =>
         let! A := synth tt in
@@ -280,8 +339,10 @@ End Check.
 Definition run_answer {A} (m : traced event failure A) : list event * answer A :=
   let (log, r) := run_traced m in (log, to_answer r).
 
-Definition run_infer (S : spec) (fuel : nat) (G : ctx) (t : term) : list event * answer term :=
-  run_answer (infer_in S fuel G t).
+Definition run_infer (S : spec) (sg : signature) (fuel : nat) (G : ctx) (t : term)
+  : list event * answer term :=
+  run_answer (infer_in S sg fuel G t).
 
-Definition run_check (S : spec) (fuel : nat) (G : ctx) (t T : term) : list event * answer unit :=
-  run_answer (check_in S fuel G t T).
+Definition run_check (S : spec) (sg : signature) (fuel : nat) (G : ctx) (t T : term)
+  : list event * answer unit :=
+  run_answer (check_in S sg fuel G t T).

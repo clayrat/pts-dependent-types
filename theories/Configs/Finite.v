@@ -6,7 +6,7 @@
     | U⁻     | ∗, □, △ | ∗:□, □:△    | (∗,∗), (□,∗), (□,□), (△,□)        |
     | U      | ∗, □, △ | ∗:□, □:△    | the rules of U⁻ and (△,∗)         |
 
-    None of them has the MLTT primitives.  The checker terminates on U⁻
+    None of them has the MLTT primitives, Σ or constants.  The checker terminates on U⁻
     and U only thanks to the strong normalization of their type level;
     on λ∗ it runs out of fuel. *)
 
@@ -36,6 +36,8 @@ Definition lambda_star_table : pts_table := {|
     | _, _ => None
     end;
   spec_prim := None;
+  spec_sigma _ _ := None;
+  spec_decls := false;
 |}.
 
 (** ** U⁻ *)
@@ -52,6 +54,8 @@ Definition u_minus_table : pts_table := {|
   spec_axiom := u_axiom;
   spec_rule := u_minus_rule;
   spec_prim := None;
+  spec_sigma _ _ := None;
+  spec_decls := false;
 |}.
 
 (** ** U *)
@@ -65,6 +69,8 @@ Definition u_table : pts_table := {|
     | _, _ => u_minus_rule s1 s2
     end;
   spec_prim := None;
+  spec_sigma _ _ := None;
+  spec_decls := false;
 |}.
 
 (** ** Specifications *)

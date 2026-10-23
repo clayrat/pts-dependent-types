@@ -32,7 +32,7 @@
 From Stdlib Require Import String List.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound Signature EmptySig.
 From DepTypes.Configs Require Import Finite.
 From DepTypes.SystemU Require Import Looping.
 
@@ -133,7 +133,7 @@ Inductive observation : Type :=
 | ObsOutOfFuel : term -> observation.      (** inconclusive *)
 
 Definition observe (fuel : nat) (t : term) : observation :=
-  match normalize fuel t with
+  match normalize ∅ fuel t with
   | NormalForm v => match decode_nat v with Some k => ObsNumeral k | None => ObsOtherNormal v end
   | StuckTerm v => ObsStuck v
   | OutOfFuel v => ObsOutOfFuel v
@@ -142,10 +142,10 @@ Definition observe (fuel : nat) (t : term) : observation :=
 (** A numeric observation is the normal form of that numeral, reached by
     normal order. *)
 Lemma observe_numeral_sound : forall fuel t k,
-  observe fuel t = ObsNumeral k -> t ⇝ₙ* church_nf k /\ nf (church_nf k).
+  observe fuel t = ObsNumeral k -> t ⇝ₙ* church_nf k /\ nf ∅ (church_nf k).
 Proof.
-  intros fuel t k H. unfold observe in H. pose proof (normalize_spec fuel t) as [Hr Hs].
-  destruct (normalize fuel t) as [v|v|v]; try discriminate.
+  intros fuel t k H. unfold observe in H. pose proof (normalize_spec (sg := ∅) fuel t) as [Hr Hs].
+  destruct (normalize ∅ fuel t) as [v|v|v]; try discriminate.
   destruct (decode_nat v) as [j|] eqn:E; [ | discriminate].
   injection H as <-. apply decode_nat_sound in E. subst. split; assumption.
 Qed.
@@ -189,7 +189,7 @@ Definition encodings_typed : list (string * nterm * nterm) :=
     of [church] never stands in for an error. *)
 Definition typed_in_u_minus (t A : nterm) : bool :=
   resolves [] t && resolves [] A &&
-  match snd (run_infer system_u_minus looping_fuel [] (church t)) with
+  match snd (run_infer system_u_minus ∅ looping_fuel [] (church t)) with
   | Accepted B => term_eqb B (church A)
   | _ => false
   end.
@@ -203,7 +203,7 @@ Lemma typed_in_u_minus_sound : forall t A,
 Proof.
   intros t A H. unfold typed_in_u_minus in H.
   apply andb_prop in H as [_ H].
-  destruct (snd (run_infer system_u_minus looping_fuel [] (church t))) as [B| |] eqn:E;
+  destruct (snd (run_infer system_u_minus ∅ looping_fuel [] (church t))) as [B| |] eqn:E;
     try discriminate.
   apply term_eqb_eq in H. subst. exact (accepted_synth _ _ _ _ E).
 Qed.

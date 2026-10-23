@@ -16,6 +16,14 @@
     the pure U⁻ the block is off, so that the primitives cannot help the
     checking of the PCF translation or of the looping combinator.
 
+    Dependent pairs and the constants of a signature are switched the
+    same way.  [spec_sigma s1 s2 = Some s3] is the rule forming
+    [Σx:A. B : s3] from [A : s1] and [B : s2]; a table without such rules
+    has no Σ.  [spec_decls] lets terms mention the constants of a
+    signature.  Both are on only in the predicative hierarchy with
+    primitives; the configurations of lecture 6 keep them off, so their
+    checks are unchanged.
+
     A specification [spec] packs such a table with a proof of
     [table_closed]: axioms, rules and the primitives mention only sorts of
     the system.  The typing rules do not consult [spec_sort] themselves,
@@ -31,6 +39,8 @@ Record pts_table : Type := {
   spec_axiom : sort -> option sort;
   spec_rule : sort -> sort -> option sort;
   spec_prim : option sort;
+  spec_sigma : sort -> sort -> option sort;
+  spec_decls : bool;
 }.
 
 (** ** Well-formedness of a table *)
@@ -39,7 +49,9 @@ Definition table_closed (S : pts_table) : Prop :=
   (forall s s', spec_axiom S s = Some s' -> spec_sort S s = true /\ spec_sort S s' = true) /\
   (forall s1 s2 s3, spec_rule S s1 s2 = Some s3 ->
      spec_sort S s1 = true /\ spec_sort S s2 = true /\ spec_sort S s3 = true) /\
-  (forall s, spec_prim S = Some s -> spec_sort S s = true).
+  (forall s, spec_prim S = Some s -> spec_sort S s = true) /\
+  (forall s1 s2 s3, spec_sigma S s1 s2 = Some s3 ->
+     spec_sort S s1 = true /\ spec_sort S s2 = true /\ spec_sort S s3 = true).
 
 Record spec : Type := {
   spec_table :> pts_table;
@@ -57,6 +69,11 @@ Proof. intros S. apply (spec_wf S). Qed.
 
 Lemma spec_prim_sort : forall (S : spec) s,
     spec_prim S = Some s -> spec_sort S s = true.
+Proof. intros S. apply (spec_wf S). Qed.
+
+Lemma spec_sigma_sorts : forall (S : spec) s1 s2 s3,
+    spec_sigma S s1 s2 = Some s3 ->
+    spec_sort S s1 = true /\ spec_sort S s2 = true /\ spec_sort S s3 = true.
 Proof. intros S. apply (spec_wf S). Qed.
 
 (** Proves [table_closed] of a concrete table by cases on sorts. *)

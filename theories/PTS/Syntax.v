@@ -20,11 +20,21 @@
     - [ElimUnit C c u]   : [C u], with [c : C tt]
     - [ElimBool C t f b] : [C b], with [t : C true] and [f : C false].
 
+    Dependent pairs are native: [Sigma A B] binds index 0 in [B], like
+    [Pi]; [Pair a b] is unannotated and checked against an expected Σ, and
+    [Fst p], [Snd p] are the projections.
+
+    A constant [Const g] names an entry of a signature (PTS.Signature):
+    an inductive type, a constructor, an eliminator instance at a fixed
+    level, or a δ-constant.  Constants take their arguments as ordinary
+    [App] spines.
+
     Renaming and substitution are parallel ([nat -> nat], [nat -> term]);
     [subst1 b u] is [b[u/0]], decrementing the other free variables of
     [b]. *)
 
 From Stdlib Require Import Arith List Bool Lia.
+From Stdlib Require String.
 Import ListNotations.
 
 (** ** Sorts *)
@@ -47,6 +57,25 @@ Proof.
   destruct (sort_eq_dec s s'); split; congruence.
 Qed.
 
+(** ** Global constants
+
+    [Ind D] is an inductive type, [Ctor D c] its constructor named [c],
+    [Elim D j] the instance of its eliminator for motives into [Type_j],
+    and [Def f] a δ-constant.  The level is part of the name: an instance
+    has one closed type, there is no universe polymorphism. *)
+
+Inductive gref : Type :=
+| Ind : String.string -> gref
+| Ctor : String.string -> String.string -> gref
+| Elim : String.string -> nat -> gref
+| Def : String.string -> gref.
+
+Definition gref_eq_dec (g g' : gref) : {g = g'} + {g <> g'}.
+Proof. decide equality; first [apply String.string_dec | apply Nat.eq_dec]. Defined.
+
+Definition gref_eqb (g g' : gref) : bool :=
+  if gref_eq_dec g g' then true else false.
+
 (** ** Terms *)
 
 Inductive term : Type :=
@@ -65,10 +94,17 @@ Inductive term : Type :=
 | Bool : term
 | BTrue : term
 | BFalse : term
-| ElimBool : term -> term -> term -> term -> term.
+| ElimBool : term -> term -> term -> term -> term
+(** dependent pairs *)
+| Sigma : term -> term -> term
+| Pair : term -> term -> term
+| Fst : term -> term
+| Snd : term -> term
+(** constants of a signature *)
+| Const : gref -> term.
 
 Definition term_eq_dec (t u : term) : {t = u} + {t <> u}.
-Proof. decide equality; first [apply sort_eq_dec | apply Nat.eq_dec]. Defined.
+Proof. decide equality; first [apply sort_eq_dec | apply Nat.eq_dec | apply gref_eq_dec]. Defined.
 
 Definition term_eqb (t u : term) : bool :=
   if term_eq_dec t u then true else false.
@@ -108,6 +144,11 @@ Fixpoint rename r t : term :=
   | BFalse => BFalse
   | ElimBool C t f b =>
       ElimBool (rename r C) (rename r t) (rename r f) (rename r b)
+  | Sigma A B => Sigma (rename r A) (rename (up_ren r) B)
+  | Pair a b => Pair (rename r a) (rename r b)
+  | Fst p => Fst (rename r p)
+  | Snd p => Snd (rename r p)
+  | Const g => Const g
   end.
 
 (** [lift k t] moves [t] under [k] new binders. *)
@@ -116,6 +157,49 @@ Definition lift (k : nat) t : term := rename (Nat.add k) t.
 (** The non-dependent arrow [A → B] is [Πx:A. B] with [B] lifted past the
     unused binder. *)
 Definition arrow A B : term := Pi A (lift 1 B).
+
+(** The product [A × B] is [Σx:A. B] in the same way. *)
+Definition times A B : term := Sigma A (lift 1 B).
+
+(** ** Spines and telescopes
+
+    [apps h [a₁; …; aₙ]] is [h a₁ … aₙ]; [spine_head] and [spine_args]
+    take a spine apart again.  [pis] and [lams] bind a telescope, outermost entry
+    first; [vars base n] are the variables of a telescope of [n] entries
+    lying [base] binders up, outermost first:
+    [Var (base + n - 1), …, Var base]. *)
+
+Definition apps (h : term) (us : list term) : term := fold_left App us h.
+
+Fixpoint spine_head t : term :=
+  match t with
+  | App f _ => spine_head f
+  | _ => t
+  end.
+
+Fixpoint spine_args t : list term :=
+  match t with
+  | App f a => spine_args f ++ [a]
+  | _ => []
+  end.
+
+Fixpoint pis (As : list term) (B : term) : term :=
+  match As with
+  | [] => B
+  | A :: As' => Pi A (pis As' B)
+  end.
+
+Fixpoint lams (n : nat) (b : term) : term :=
+  match n with
+  | 0 => b
+  | S n' => Lam (lams n' b)
+  end.
+
+Fixpoint vars (base n : nat) : list term :=
+  match n with
+  | 0 => []
+  | S n' => Var (base + n') :: vars base n'
+  end.
 
 (** ** Substitution *)
 
@@ -140,6 +224,11 @@ Fixpoint subst (sb : nat -> term) t : term :=
   | BFalse => BFalse
   | ElimBool C t f b =>
       ElimBool (subst sb C) (subst sb t) (subst sb f) (subst sb b)
+  | Sigma A B => Sigma (subst sb A) (subst (up_sub sb) B)
+  | Pair a b => Pair (subst sb a) (subst sb b)
+  | Fst p => Fst (subst sb p)
+  | Snd p => Snd (subst sb p)
+  | Const g => Const g
   end.
 
 Definition scons (u : term) (sb : nat -> term) : nat -> term :=
@@ -152,11 +241,12 @@ Definition subst1 (b u : term) : term := subst (scons u Var) b.
 (** [free_in i t] decides whether index [i] occurs free in [t]. *)
 Fixpoint free_in (i : nat) t : bool :=
   match t with
-  | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse => false
+  | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ => false
   | Var n => Nat.eqb n i
-  | Pi A B => free_in i A || free_in (S i) B
+  | Pi A B | Sigma A B => free_in i A || free_in (S i) B
   | Lam b => free_in (S i) b
-  | App f a | Ann f a | ElimVoid f a => free_in i f || free_in i a
+  | Fst p | Snd p => free_in i p
+  | App f a | Ann f a | ElimVoid f a | Pair f a => free_in i f || free_in i a
   | ElimUnit C c u => free_in i C || free_in i c || free_in i u
   | ElimBool C t f b =>
       free_in i C || free_in i t || free_in i f || free_in i b
@@ -165,11 +255,12 @@ Fixpoint free_in (i : nat) t : bool :=
 (** [closed_above k t]: every free index of [t] is below [k]. *)
 Fixpoint closed_above (k : nat) t : bool :=
   match t with
-  | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse => true
+  | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ => true
   | Var n => Nat.ltb n k
-  | Pi A B => closed_above k A && closed_above (S k) B
+  | Pi A B | Sigma A B => closed_above k A && closed_above (S k) B
   | Lam b => closed_above (S k) b
-  | App f a | Ann f a | ElimVoid f a => closed_above k f && closed_above k a
+  | Fst p | Snd p => closed_above k p
+  | App f a | Ann f a | ElimVoid f a | Pair f a => closed_above k f && closed_above k a
   | ElimUnit C c u => closed_above k C && closed_above k c && closed_above k u
   | ElimBool C t f b =>
       closed_above k C && closed_above k t && closed_above k f && closed_above k b
@@ -201,6 +292,11 @@ Fixpoint map_sorts (g : sort -> sort) t : term :=
   | BFalse => BFalse
   | ElimBool C t f b =>
       ElimBool (map_sorts g C) (map_sorts g t) (map_sorts g f) (map_sorts g b)
+  | Sigma A B => Sigma (map_sorts g A) (map_sorts g B)
+  | Pair a b => Pair (map_sorts g a) (map_sorts g b)
+  | Fst p => Fst (map_sorts g p)
+  | Snd p => Snd (map_sorts g p)
+  | Const c => Const c
   end.
 
 (** ** Contexts

@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List Relations.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir Check Named.
+From DepTypes.PTS Require Import Syntax Spec Reduction NormalOrder Eval Typing Bidir Check Named Signature EmptySig.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes Require Import Examples.
 
@@ -112,82 +112,82 @@ Example nstep_neutral_head :
 Proof. apply N_AppArg; constructor. Qed.
 
 (** Without η, [λx. f x] is a normal form distinct from [f]. *)
-Example eta_not_reduced : nf (Lam (App (Var 1) (Var 0))).
+Example eta_not_reduced : nf ∅ (Lam (App (Var 1) (Var 0))).
 Proof. repeat constructor. Qed.
 
 (** Without a normal-order step a raw term need not be normal:
     [Tt] applied to [Ann Tt Unit] has a [red1]-redex in the argument, but
     [Tt] is neither a λ nor neutral, so normal order is stuck. *)
 Example stuck_app_tt :
-  stuck (App Tt (Ann Tt Unit)) /\ App Tt (Ann Tt Unit) ⇝ App Tt Tt.
+  stuck ∅ (App Tt (Ann Tt Unit)) /\ App Tt (Ann Tt Unit) ⇝ App Tt Tt.
 Proof.
   split; [split | apply R_AppArg, R_Ann].
   - intros H. inversion H; subst.
-    match goal with Hn : ne (App _ _) |- _ => inversion Hn; subst end.
-    match goal with Hn : ne Tt |- _ => inversion Hn end.
-  - intros u H. inversion H; subst;
+    match goal with Hn : ne _ (App _ _) |- _ => inversion Hn; subst end;
+      match goal with Hn : ne _ Tt |- _ => inversion Hn end.
+  - intros u H. inversion H; subst; try discriminate;
       match goal with
-      | Hs : Tt ⇝ₙ _ |- _ => inversion Hs
-      | Hn : ne Tt |- _ => inversion Hn
+      | Hs : Tt ⇝ₙ _ |- _ => inversion Hs; subst; discriminate
+      | Hn : ne _ Tt |- _ => inversion Hn
       end.
 Qed.
 
 (** ** Bounded evaluation and conversion *)
 
 Example eval_under_binder :
-  normalize 1 (Lam (Ann (Var 0) Bool)) = NormalForm (Lam (Var 0)).
+  normalize ∅ 1 (Lam (Ann (Var 0) Bool)) = NormalForm (Lam (Var 0)).
 Proof. reflexivity. Qed.
 
 Example eval_open_neutral :
-  normalize 1 (App (Var 0) (Ann Tt Unit)) =
+  normalize ∅ 1 (App (Var 0) (Ann Tt Unit)) =
   NormalForm (App (Var 0) Tt).
 Proof. reflexivity. Qed.
 
 Example eval_discards_argument :
-  normalize 1 (App (Lam (Var 1)) (Ann Tt Unit)) = NormalForm (Var 0).
+  normalize ∅ 1 (App (Lam (Var 1)) (Ann Tt Unit)) = NormalForm (Var 0).
 Proof. reflexivity. Qed.
 
 Example eval_annotation_before_beta :
-  normalize 2 (App (Ann (Lam (Var 0)) (Pi Unit Unit)) Tt) = NormalForm Tt.
+  normalize ∅ 2 (App (Ann (Lam (Var 0)) (Pi Unit Unit)) Tt) = NormalForm Tt.
 Proof. reflexivity. Qed.
 
 Example eval_bool_selected_branch :
-  normalize 1 (ElimBool (Lam Bool) BTrue BFalse BFalse) = NormalForm BFalse.
+  normalize ∅ 1 (ElimBool (Lam Bool) BTrue BFalse BFalse) = NormalForm BFalse.
 Proof. reflexivity. Qed.
 
 Example eval_stuck_raw_term :
-  normalize 1 (App Tt (Ann Tt Unit)) = StuckTerm (App Tt (Ann Tt Unit)).
+  normalize ∅ 1 (App Tt (Ann Tt Unit)) = StuckTerm (App Tt (Ann Tt Unit)).
 Proof. reflexivity. Qed.
 
 Example eval_fuel_boundary :
-  normalize 0 (App (Lam (Var 0)) Tt) = OutOfFuel (App (Lam (Var 0)) Tt) /\
-  normalize 0 Tt = NormalForm Tt.
+  normalize ∅ 0 (App (Lam (Var 0)) Tt) = OutOfFuel (App (Lam (Var 0)) Tt) /\
+  normalize ∅ 0 Tt = NormalForm Tt.
 Proof. split; reflexivity. Qed.
 
 Example eval_trace_includes_endpoints :
-  normalize_trace 2 (App (Ann (Lam (Var 0)) (Pi Unit Unit)) Tt) =
+  normalize_trace ∅ 2 (App (Ann (Lam (Var 0)) (Pi Unit Unit)) Tt) =
     ([App (Ann (Lam (Var 0)) (Pi Unit Unit)) Tt;
       App (Lam (Var 0)) Tt; Tt], NormalForm Tt).
 Proof. reflexivity. Qed.
 
 Example whnf_ignores_argument :
-  whnf 0 (App (Var 0) (Ann Tt Unit)) =
+  whnf ∅ 0 (App (Var 0) (Ann Tt Unit)) =
     HeadForm (App (Var 0) (Ann Tt Unit)).
 Proof. reflexivity. Qed.
 
 (** The scrutinee of [ElimVoid] is in head position, as for the other
     eliminators. *)
 Example whnf_elim_void_scrutinee :
-  whnf 1 (ElimVoid Void (Ann (Var 0) Void)) = HeadForm (ElimVoid Void (Var 0)).
+  whnf ∅ 1 (ElimVoid Void (Ann (Var 0) Void)) = HeadForm (ElimVoid Void (Var 0)).
 Proof. reflexivity. Qed.
 
 Example conv_has_no_eta :
-  convert 0 (Var 0) (Lam (App (Var 1) (Var 0))) = ConvDifferent.
+  convert ∅ 0 (Var 0) (Lam (App (Var 1) (Var 0))) = ConvDifferent.
 Proof. reflexivity. Qed.
 
 Example conv_timeout_and_stuck :
-  convert 0 (App (Lam (Var 0)) Tt) Tt = ConvOutOfFuel /\
-  convert 1 (App Tt (Ann Tt Unit)) Tt = ConvStuck.
+  convert ∅ 0 (App (Lam (Var 0)) Tt) Tt = ConvOutOfFuel /\
+  convert ∅ 1 (App Tt (Ann Tt Unit)) Tt = ConvStuck.
 Proof. split; reflexivity. Qed.
 
 (** ** Declarative typing versus the annotated kernel *)
@@ -196,7 +196,7 @@ Proof. split; reflexivity. Qed.
 Example beta_redex_typable :
   predicative ;; [] ⊢ App (Lam (Var 0)) BTrue ∈ Bool.
 Proof.
-  assert (Hctx : wf_ctx predicative [Bool]).
+  assert (Hctx : wf_ctx predicative ∅ [Bool]).
   { eapply W_Cons with (s := Univ 0). eapply T_Bool; [constructor | reflexivity]. }
   change (predicative ;; [] ⊢ App (Lam (Var 0)) BTrue ∈ subst1 Bool BTrue).
   eapply T_App with (A := Bool).
@@ -212,7 +212,7 @@ Example beta_redex_not_synth : forall A,
   ~ predicative ;; [] ⊢ App (Lam (Var 0)) BTrue ⇑ A.
 Proof.
   intros A H. inversion H; subst.
-  match goal with Hf : synth _ _ (Lam _) _ |- _ => inversion Hf end.
+  match goal with Hf : synth _ _ _ (Lam _) _ |- _ => inversion Hf end.
 Qed.
 
 (** With the annotation it does. *)
@@ -274,11 +274,11 @@ Qed.
 
 (** ...but that expected type is not admissible. *)
 Example unbound_annotation_not_btype :
-  ~ btype predicative [] (Ann Bool (Var 0)).
+  ~ btype predicative ∅ [] (Ann Bool (Var 0)).
 Proof.
   intros [(s & Hs & _) | (T & s & H & _)]; [discriminate | ].
   inversion H; subst.
-  match goal with Hv : synth _ _ (Var 0) _ |- _ => inversion Hv; subst end.
+  match goal with Hv : synth _ _ _ (Var 0) _ |- _ => inversion Hv; subst end.
   discriminate.
 Qed.
 
@@ -290,7 +290,7 @@ Proof. eapply C_Synth; [apply S_Sort; reflexivity | apply conv_refl]. Qed.
 Example tri_untyped : forall T, ~ system_u_minus ;; [] ⊢ Srt Tri ⇑ T.
 Proof. intros T H. inversion H; subst. discriminate. Qed.
 
-Example tri_btype : btype system_u_minus [] (Srt Tri).
+Example tri_btype : btype system_u_minus ∅ [] (Srt Tri).
 Proof. left. now exists Tri. Qed.
 
 (** The raw term Ω of Examples.v has no normal form.  It does
@@ -306,14 +306,14 @@ Proof. left. now exists Tri. Qed.
 Example omega_not_synth : forall S G A, ~ S ;; G ⊢ raw_omega ⇑ A.
 Proof.
   intros S G A H. unfold raw_omega, self_app in H. inversion H; subst.
-  match goal with Hf : synth _ _ (Lam _) _ |- _ => inversion Hf end.
+  match goal with Hf : synth _ _ _ (Lam _) _ |- _ => inversion Hf end.
 Qed.
 
-Example convert_omega_syntactic : convert 0 raw_omega raw_omega = ConvEqual raw_omega.
+Example convert_omega_syntactic : convert ∅ 0 raw_omega raw_omega = ConvEqual raw_omega.
 Proof. reflexivity. Qed.
 
 Example convert_omega_annotated :
-  convert 50 raw_omega (Ann raw_omega (Srt Star)) = ConvOutOfFuel.
+  convert ∅ 50 raw_omega (Ann raw_omega (Srt Star)) = ConvOutOfFuel.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The fast path of [convert] does not diagnose stuckness: the stuck raw
@@ -321,8 +321,8 @@ Proof. vm_compute. reflexivity. Qed.
     itself for [convert].  A syntactically different partner exposes it. *)
 Example convert_identical_stuck :
   let x := App Tt (Ann Tt Unit) in
-  normalize 1 x = StuckTerm x /\ convert 1 x x = ConvEqual x /\
-  convert 1 x (App Tt Tt) = ConvStuck.
+  normalize ∅ 1 x = StuckTerm x /\ convert ∅ 1 x x = ConvEqual x /\
+  convert ∅ 1 x (App Tt Tt) = ConvStuck.
 Proof. vm_compute. auto. Qed.
 
 (** ** The checker
@@ -332,10 +332,10 @@ Proof. vm_compute. auto. Qed.
     one universe too high for the predicative hierarchy. *)
 
 
-Example check_id_u_minus : snd (run_infer system_u_minus 100 [] id_tm) = Accepted id_ty.
+Example check_id_u_minus : snd (run_infer system_u_minus ∅ 100 [] id_tm) = Accepted id_ty.
 Proof. vm_compute. reflexivity. Qed.
 
-Example check_id_ty_star : snd (run_infer system_u_minus 100 [] id_ty) = Accepted (Srt Star).
+Example check_id_ty_star : snd (run_infer system_u_minus ∅ 100 [] id_ty) = Accepted (Srt Star).
 Proof. vm_compute. reflexivity. Qed.
 
 (** The lecture trace of [id A x] with [A : ∗, x : A]: the context is
@@ -343,7 +343,7 @@ Proof. vm_compute. reflexivity. Qed.
     function unfolds to a Π, the argument is checked against the domain,
     and only then substituted into the codomain. *)
 Example check_id_applied :
-  run_infer system_u_minus 100 [Var 0; Srt Star] (App (App id_tm (Var 1)) (Var 0)) =
+  run_infer system_u_minus ∅ 100 [Var 0; Srt Star] (App (App id_tm (Var 1)) (Var 0)) =
   ([EvCtxEntry 0 (Srt Star); EvAxiom Star Box;
     EvCtxEntry 1 (Var 0);
     EvTerm (App (App id_tm (Var 1)) (Var 0));
@@ -362,33 +362,33 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** Types do not depend on terms in U⁻: the rule (∗, □) is missing. *)
 Example check_no_star_box :
-  snd (run_infer system_u_minus 100 [Srt Star] (Pi (Var 0) (Srt Star))) = Rejected (ENoRule (Pi (Var 0) (Srt Star)) Star Box).
+  snd (run_infer system_u_minus ∅ 100 [Srt Star] (Pi (Var 0) (Srt Star))) = Rejected (ENoRule (Pi (Var 0) (Srt Star)) Star Box).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_id_ty_univ1 :
-  snd (run_infer predicative 100 [] (map_sorts u_to_univ id_ty)) = Accepted (Srt (Univ 1)).
+  snd (run_infer predicative ∅ 100 [] (map_sorts u_to_univ id_ty)) = Accepted (Srt (Univ 1)).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_id_ty_not_univ0 :
-  snd (run_check predicative 100 [] (map_sorts u_to_univ id_ty) (Srt (Univ 0))) =
+  snd (run_check predicative ∅ 100 [] (map_sorts u_to_univ id_ty) (Srt (Univ 0))) =
   Rejected (EMismatch (map_sorts u_to_univ id_ty) (Srt (Univ 0)) (Srt (Univ 1))).
 Proof. vm_compute. reflexivity. Qed.
 
-Example check_top_sort : snd (run_infer system_u_minus 100 [] (Srt Tri)) = Rejected (ETopSort Tri).
+Example check_top_sort : snd (run_infer system_u_minus ∅ 100 [] (Srt Tri)) = Rejected (ETopSort Tri).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_foreign_sort :
-  snd (run_infer system_u_minus 100 [] (Srt (Univ 0))) = Rejected (ENotInSystem (Univ 0)).
+  snd (run_infer system_u_minus ∅ 100 [] (Srt (Univ 0))) = Rejected (ENotInSystem (Univ 0)).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_no_primitives_u_minus :
-  snd (run_infer system_u_minus 100 [] Bool) = Rejected (ENoPrimitives Bool).
+  snd (run_infer system_u_minus ∅ 100 [] Bool) = Rejected (ENoPrimitives Bool).
 Proof. vm_compute. reflexivity. Qed.
 
 (** Large elimination with [type_family] of Examples.v. *)
 
 Example check_large_elim_true :
-  snd (run_check predicative 100 [] Tt (ElimBool type_family Unit Bool BTrue)) = Accepted tt.
+  snd (run_check predicative ∅ 100 [] Tt (ElimBool type_family Unit Bool BTrue)) = Accepted tt.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The lecture trace of large elimination: validating the expected type
@@ -397,7 +397,7 @@ Proof. vm_compute. reflexivity. Qed.
     expected type unfolded to the sort Type_0; then [tt] is checked, its
     type [Unit] and the expected type both reaching [Unit]. *)
 Example check_large_elim_trace :
-  run_check predicative 100 [] Tt (ElimBool type_family Unit Bool BTrue) =
+  run_check predicative ∅ 100 [] Tt (ElimBool type_family Unit Bool BTrue) =
   ([EvExpected (ElimBool type_family Unit Bool BTrue);
     EvAxiom (Univ 1) (Univ 2); EvRule (Univ 0) (Univ 2) (Univ 2);
     EvUnfoldPi (Lam (Srt (Univ 0))) (Pi Bool (Srt (Univ 1))) Bool (Srt (Univ 1));
@@ -415,43 +415,43 @@ Example check_large_elim_trace :
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_large_elim_false :
-  snd (run_check predicative 100 [] BTrue (ElimBool type_family Unit Bool BFalse)) = Accepted tt.
+  snd (run_check predicative ∅ 100 [] BTrue (ElimBool type_family Unit Bool BFalse)) = Accepted tt.
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_wrong_branch :
-  snd (run_infer predicative 100 [] (ElimBool type_family Unit Tt BTrue)) =
+  snd (run_infer predicative ∅ 100 [] (ElimBool type_family Unit Tt BTrue)) =
   Rejected (EMismatch Tt (App type_family BFalse) Unit).
 Proof. vm_compute. reflexivity. Qed.
 
 (** With a free boolean the computed type stays neutral. *)
 Example check_neutral_type :
-  snd (run_check predicative 100 [Bool] Tt (ElimBool type_family Unit Bool (Var 0))) =
+  snd (run_check predicative ∅ 100 [Bool] Tt (ElimBool type_family Unit Bool (Var 0))) =
   Rejected (EMismatch Tt (ElimBool type_family Unit Bool (Var 0)) Unit).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_bad_family :
-  snd (run_infer predicative 100 []
+  snd (run_infer predicative ∅ 100 []
          (ElimBool (Ann (Lam Bool) (Pi Unit (Srt (Univ 0)))) BTrue BTrue BTrue)) =
   Rejected (EBadFamily (Ann (Lam Bool) (Pi Unit (Srt (Univ 0)))) Bool Unit).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_lam_needs_annotation :
-  snd (run_infer predicative 100 [] (App (Lam (Var 0)) BTrue)) = Rejected (ECannotInfer (Lam (Var 0))).
+  snd (run_infer predicative ∅ 100 [] (App (Lam (Var 0)) BTrue)) = Rejected (ECannotInfer (Lam (Var 0))).
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_annotated_redex :
-  snd (run_infer predicative 100 [] (App (Ann (Lam (Var 0)) (Pi Bool Bool)) BTrue)) = Accepted Bool.
+  snd (run_infer predicative ∅ 100 [] (App (Ann (Lam (Var 0)) (Pi Bool Bool)) BTrue)) = Accepted Bool.
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_not_a_function :
-  snd (run_infer predicative 100 [] (App BTrue Tt)) = Rejected (ENotAPi BTrue Bool).
+  snd (run_infer predicative ∅ 100 [] (App BTrue Tt)) = Rejected (ENotAPi BTrue Bool).
 Proof. vm_compute. reflexivity. Qed.
 
 (** Without fuel the expected type cannot even be validated: its branch
     [Unit] is compared with the computed [type_family true].  The answer
     is undecided, not a rejection. *)
 Example check_out_of_fuel :
-  snd (run_check predicative 0 [] Tt (ElimBool type_family Unit Bool BTrue)) = Undecided Unit.
+  snd (run_check predicative ∅ 0 [] Tt (ElimBool type_family Unit Bool BTrue)) = Undecided Unit.
 Proof. vm_compute. reflexivity. Qed.
 
 (** ** Validation of inputs *)
@@ -460,26 +460,26 @@ Proof. vm_compute. reflexivity. Qed.
     context (chk_unbound_annotation); the checker rejects the expected
     type first. *)
 Example check_unbound_annotation :
-  snd (run_check predicative 100 [] BTrue (Ann Bool (Var 0))) = Rejected (EUnboundVar 0).
+  snd (run_check predicative ∅ 100 [] BTrue (Ann Bool (Var 0))) = Rejected (EUnboundVar 0).
 Proof. vm_compute. reflexivity. Qed.
 
 (** The top sort △ has no type, yet it is an admissible expected type. *)
-Example check_box_tri : snd (run_check system_u_minus 100 [] (Srt Box) (Srt Tri)) = Accepted tt.
+Example check_box_tri : snd (run_check system_u_minus ∅ 100 [] (Srt Box) (Srt Tri)) = Accepted tt.
 Proof. vm_compute. reflexivity. Qed.
 
 Example check_expected_foreign_sort :
-  snd (run_check system_u_minus 100 [] (Srt Star) (Srt (Univ 1))) = Rejected (ENotInSystem (Univ 1)).
+  snd (run_check system_u_minus ∅ 100 [] (Srt Star) (Srt (Univ 1))) = Rejected (ENotInSystem (Univ 1)).
 Proof. vm_compute. reflexivity. Qed.
 
 (** A context entry must be a type: [true] is a term of type Bool. *)
 Example check_ctx_not_a_type :
-  snd (run_infer predicative 100 [BTrue] (Var 0)) = Rejected (ENotASort BTrue Bool).
+  snd (run_infer predicative ∅ 100 [BTrue] (Var 0)) = Rejected (ENotASort BTrue Bool).
 Proof. vm_compute. reflexivity. Qed.
 
 (** Each entry is checked in the context behind it: [Var 0] has nothing
     to refer to as the last entry. *)
 Example check_ctx_unbound :
-  snd (run_infer system_u_minus 100 [Srt Star; Var 0] (Var 0)) = Rejected (EUnboundVar 0).
+  snd (run_infer system_u_minus ∅ 100 [Srt Star; Var 0] (Var 0)) = Rejected (EUnboundVar 0).
 Proof. vm_compute. reflexivity. Qed.
 
 (** ** Named terms *)

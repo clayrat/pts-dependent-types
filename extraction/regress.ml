@@ -20,25 +20,25 @@ let () =
   expect "dangling index" (pp_term (App (Var 0, Var 3))) "#0 #3";
   expect "depth bound" (pp_term ~depth:2 (App (App (Var 0, Var 1), Var 2))) "… #2";
   expect "id applied"
-    (answer_term id_applied_ctx (run_infer system_u_minus 100 id_applied_ctx id_applied))
+    (answer_term id_applied_ctx (run_infer system_u_minus sig_empty 100 id_applied_ctx id_applied))
     "accepted: A";
   expect "no (∗, □)"
-    (answer_term star_box_ctx (run_infer system_u_minus 100 star_box_ctx star_box))
+    (answer_term star_box_ctx (run_infer system_u_minus sig_empty 100 star_box_ctx star_box))
     "rejected: no rule (∗, □, _) for #0 → ∗";
   expect "Type₁"
-    (answer_term [] (run_infer predicative 100 [] (map_sorts u_to_univ id_ty)))
+    (answer_term [] (run_infer predicative sig_empty 100 [] (map_sorts u_to_univ id_ty)))
     "accepted: Type₁";
   expect "not Type₀"
-    (answer_unit (run_check predicative 100 [] (map_sorts u_to_univ id_ty) (Srt (Univ 0))))
+    (answer_unit (run_check predicative sig_empty 100 [] (map_sorts u_to_univ id_ty) (Srt (Univ 0))))
     "rejected: ΠA:Type₀. A → A has type Type₁, expected Type₀";
-  expect "large elimination" (answer_unit (run_check predicative 100 [] Tt large_elim_ty))
+  expect "large elimination" (answer_unit (run_check predicative sig_empty 100 [] Tt large_elim_ty))
     "accepted";
-  expect "no fuel" (answer_unit (run_check predicative 0 [] Tt large_elim_ty))
+  expect "no fuel" (answer_unit (run_check predicative sig_empty 0 [] Tt large_elim_ty))
     "undecided: out of fuel while typing Unit";
-  expect "Ω" (pp_eval_result (normalize 5 raw_omega)) "out of fuel at (λx. x x) (λx. x x)";
+  expect "Ω" (pp_eval_result (normalize sig_empty 5 raw_omega)) "out of fuel at (λx. x x) (λx. x x)";
   expect "bad family"
     (answer_term []
-       (run_infer predicative 100 []
+       (run_infer predicative sig_empty 100 []
           (ElimBool (Ann (Lam Bool, Pi (Unit, Srt (Univ 0))), BTrue, BTrue, BTrue))))
     "rejected: result family ((λx. Bool) : Unit → Type₀) is over Unit, expected over Bool";
   expect "context entry"
@@ -57,10 +57,10 @@ let () =
     "x,A ⊢ A : ∗, x : A";
   (* The looping combinator. *)
   expect "L₀ in U⁻"
-    (answer_term [] (run_infer system_u_minus looping_fuel [] (looping 0)))
+    (answer_term [] (run_infer system_u_minus sig_empty looping_fuel [] (looping 0)))
     "accepted: ΠA:∗. (A → A) → A";
   expect "L₀ predicative"
-    (match snd (run_infer pure_predicative looping_fuel [] (map_sorts u_to_univ (looping 0))) with
+    (match snd (run_infer pure_predicative sig_empty looping_fuel [] (map_sorts u_to_univ (looping 0))) with
      | Rejected (EMismatch (_, Srt (Univ 0), Srt (Univ 2))) -> "Type₂, expected Type₀"
      | a -> pp_answer pp_term a)
     "Type₂, expected Type₀";
@@ -100,42 +100,62 @@ let () =
   let accepted = function Accepted _ -> "accepted" | Rejected _ -> "rejected" | Undecided _ -> "undecided" in
   let names g = List.map fst g in
   expect "choose typed"
-    (accepted (snd (run_check predicative choose_fuel (in_ctx types_ctx)
+    (accepted (snd (run_check predicative sig_empty choose_fuel (in_ctx types_ctx)
                       (term_in types_ctx choose) (term_in types_ctx choose_ty))))
     "accepted";
   List.iter
     (fun (b, ty, v, label) ->
       expect ("choose " ^ label ^ " typed")
-        (accepted (snd (run_check predicative choose_fuel (in_ctx args_ctx)
+        (accepted (snd (run_check predicative sig_empty choose_fuel (in_ctx args_ctx)
                           (term_in args_ctx (choose_at b)) (term_in args_ctx (NVar ty)))))
         "accepted";
       expect ("choose " ^ label ^ " evaluates")
-        (pp_eval_result ~names:(names args_ctx) (normalize choose_fuel (term_in args_ctx (choose_at b))))
+        (pp_eval_result ~names:(names args_ctx) (normalize sig_empty choose_fuel (term_in args_ctx (choose_at b))))
         ("normal form " ^ v))
     [ (NTrue, "A", "a", "true"); (NFalse, "B", "c", "false") ];
   expect "choose open not A"
-    (accepted (snd (run_check predicative choose_fuel (in_ctx open_ctx)
+    (accepted (snd (run_check predicative sig_empty choose_fuel (in_ctx open_ctx)
                       (term_in open_ctx (choose_at (NVar "b"))) (term_in open_ctx (NVar "A")))))
     "rejected";
   expect "choose swapped"
-    (accepted (snd (run_check predicative choose_fuel (in_ctx types_ctx)
+    (accepted (snd (run_check predicative sig_empty choose_fuel (in_ctx types_ctx)
                       (term_in types_ctx choose_swapped) (term_in types_ctx choose_ty))))
     "rejected";
   expect "low family"
-    (pp_answer pp_term (snd (run_infer predicative choose_fuel [] (build [] low_family))))
+    (pp_answer pp_term (snd (run_infer predicative sig_empty choose_fuel [] (build [] low_family))))
     "rejected: Type₀ has type Type₁, expected Type₀";
   (* Void and Unit. *)
   expect "void elimination"
-    (accepted (snd (run_check predicative elim_fuel (in_ctx void_ctx) (term_in void_ctx void_elim)
+    (accepted (snd (run_check predicative sig_empty elim_fuel (in_ctx void_ctx) (term_in void_ctx void_elim)
                       (term_in void_ctx (NVar "A")))))
     "accepted";
   expect "unit elimination typed"
-    (accepted (snd (run_check predicative elim_fuel [] (build [] (unit_elim NTt)) Bool)))
+    (accepted (snd (run_check predicative sig_empty elim_fuel [] (build [] (unit_elim NTt)) Bool)))
     "accepted";
   expect "unit elimination computes"
-    (pp_eval_result (normalize elim_fuel (build [] (unit_elim NTt)))) "normal form true";
+    (pp_eval_result (normalize sig_empty elim_fuel (build [] (unit_elim NTt)))) "normal form true";
   expect "unit elimination open"
-    (accepted (snd (run_check predicative elim_fuel (in_ctx unit_ctx)
+    (accepted (snd (run_check predicative sig_empty elim_fuel (in_ctx unit_ctx)
                       (term_in unit_ctx (unit_elim (NVar "u"))) Bool)))
     "rejected";
+  (* Σ and constants *)
+  expect "product" (pp_term (Sigma (Bool, Unit))) "Bool × Unit";
+  expect "dependent sum" (pp_term (Sigma (Srt (Univ 0), Var 0))) "ΣA:Type₀. A";
+  expect "pair" (pp_term (Pair (BTrue, Tt))) "⟨true, tt⟩";
+  expect "projections" (pp_term ~names:[ "p" ] (App (Fst (Var 0), Snd (Var 0)))) "fst p (snd p)";
+  expect "constants"
+    (pp_term (App (App (Const (Elim ("Nat", 1)), Const (Ind "Nat")), Const (Ctor ("Nat", "zero")))))
+    "elimNat[1] Nat zero";
+  expect "dependent pair"
+    (answer_unit (run_check predicative sig_empty 100 [] (Pair (BTrue, Tt)) (Sigma (Bool, Unit))))
+    "accepted";
+  expect "no Σ in U⁻"
+    (answer_term [] (run_infer system_u_minus sig_empty 100 [] (Sigma (Srt Star, Var 0))))
+    "rejected: no Σ-rule (□, ∗, _) for ΣA:∗. A";
+  expect "unknown constant"
+    (answer_term [] (run_infer predicative sig_empty 100 [] (Const (Def "double"))))
+    "rejected: the constant double is not in the signature";
+  expect "constants off"
+    (answer_term [] (run_infer system_u_minus sig_empty 100 [] (Const (Ind "Nat"))))
+    "rejected: Nat: constants are off in this system";
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

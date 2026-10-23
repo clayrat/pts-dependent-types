@@ -9,7 +9,9 @@
 
     The non-dependent arrow [A ~> B] binds nothing: [B] is resolved in
     the names around the arrow and lifted past the binder of the Π, as
-    [arrow] of PTS.Syntax does.
+    [arrow] of PTS.Syntax does; the product [A ⨯ B] is resolved the same
+    way into a Σ.  A constant [NConst g] is not a name: it refers to the
+    signature, not to the context.
 
     The builder is a convenience: it is not verified, and a term it
     produces is trusted only after the checker accepts it.
@@ -40,7 +42,13 @@ Inductive nterm : Type :=
 | NBool : nterm
 | NTrue : nterm
 | NFalse : nterm
-| NElimBool : nterm -> nterm -> nterm -> nterm -> nterm.
+| NElimBool : nterm -> nterm -> nterm -> nterm -> nterm
+| NSigma : string -> nterm -> nterm -> nterm
+| NTimes : nterm -> nterm -> nterm
+| NPair : nterm -> nterm -> nterm
+| NFst : nterm -> nterm
+| NSnd : nterm -> nterm
+| NConst : gref -> nterm.
 
 (** The index of the nearest binder named [x]. *)
 Fixpoint index_of (x : string) (names : list string) : option nat :=
@@ -97,6 +105,21 @@ Fixpoint resolve (names : list string) (t : nterm) : result string term :=
       let* f' := resolve names f in
       let* b' := resolve names b in
       Ok (ElimBool C' t' f' b')
+  | NSigma x A B =>
+      let* A' := resolve names A in
+      let* B' := resolve (x :: names) B in
+      Ok (Sigma A' B')
+  | NTimes A B =>
+      let* A' := resolve names A in
+      let* B' := resolve names B in
+      Ok (times A' B')
+  | NPair a b =>
+      let* a' := resolve names a in
+      let* b' := resolve names b in
+      Ok (Pair a' b')
+  | NFst p => let* p' := resolve names p in Ok (Fst p')
+  | NSnd p => let* p' := resolve names p in Ok (Snd p')
+  | NConst g => Ok (Const g)
   end.
 
 (** A named context, innermost entry first: each type is resolved in the
@@ -149,8 +172,12 @@ Lemma resolve_weaken : forall t bs ns t',
   resolve bs t = Ok t' -> resolve (bs ++ ns) t = Ok t'.
 Proof.
   induction t; intros bs ns t' H.
-  2: { cbn in H |- *. destruct (index_of s bs) eqn:E; [ | discriminate H].
-       rewrite (index_of_app _ _ ns _ E). exact H. }
+  (* a variable: its nearest binder lies among [bs] *)
+  all: try lazymatch goal with
+       | H : resolve _ (NVar ?x) = _ |- _ =>
+           cbn in H |- *; destruct (index_of x bs) eqn:E; [ | discriminate H];
+           rewrite (index_of_app _ _ ns _ E); exact H
+       end.
   all: cbn [resolve] in H |- *; resolve_inv H.
   all: repeat match goal with
        | IH : forall bs ns t', resolve bs ?u = Ok t' -> resolve (bs ++ ns) ?u = Ok t',
@@ -167,9 +194,13 @@ Lemma resolve_closed_above : forall t names t',
   resolve names t = Ok t' -> closed_above (length names) t' = true.
 Proof.
   induction t; intros names t' H.
-  2: { cbn in H. destruct (index_of s names) eqn:E; [ | discriminate H].
-       injection H as <-. cbn. apply Nat.ltb_lt, (index_of_lt s), E. }
-  all: cbn [resolve] in H; resolve_inv H; injection H as <-; unfold arrow; cbn.
+  (* a variable: its index is below the number of names *)
+  all: try lazymatch goal with
+       | H : resolve _ (NVar ?x) = _ |- _ =>
+           cbn in H; destruct (index_of x names) eqn:E; [ | discriminate H];
+           injection H as <-; cbn; apply Nat.ltb_lt, (index_of_lt x), E
+       end.
+  all: cbn [resolve] in H; resolve_inv H; injection H as <-; unfold arrow, times; cbn.
   all: repeat match goal with
        | IH : forall names t', resolve names ?u = Ok t' -> closed_above (length names) t' = true,
          Hr : resolve _ ?u = Ok _ |- _ => apply IH in Hr; cbn [length] in Hr
@@ -199,7 +230,12 @@ Notation "'λ' x , b" := (NLam x b)
 Notation "'Π' x : A , B" := (NPi x A B)
   (at level 200, x at level 0, A at level 200, B at level 200, right associativity)
   : nterm_scope.
+Notation "'Σ' x : A , B" := (NSigma x A B)
+  (at level 200, x at level 0, A at level 200, B at level 200, right associativity)
+  : nterm_scope.
 Notation "A ~> B" := (NArrow A B) (at level 99, right associativity) : nterm_scope.
+Notation "A ⨯ B" := (NTimes A B) (at level 98, right associativity) : nterm_scope.
+Notation "⟨ a , b ⟩" := (NPair a b) (at level 0, a at level 200, b at level 200) : nterm_scope.
 Notation "t ∷ A" := (NAnn t A) (at level 100, no associativity) : nterm_scope.
 Notation "⋆" := (NSrt Star) : nterm_scope.
 Notation "□" := (NSrt Box) : nterm_scope.

@@ -1,12 +1,20 @@
 (** * Reduction and conversion
 
-    The contract of conversion for the first kernel: the congruence closure
-    of
+    The contract of conversion: the congruence closure of
     - β: [(λ. b) u ⇝ b[u/0]];
     - erasure of annotations: [(t : A) ⇝ t];
-    - ι: the computation rules of the eliminators on constructors.
+    - ι: the computation rules of the eliminators of the primitives on
+      constructors, and the projections of a pair;
+    - δ and ι of a signature [sg] (PTS.Signature): the unfolding of a
+      δ-constant, and the scheme of an eliminator instance with active
+      rules on a constructor spine.
 
-    There is no η, neither for Π nor for the base types: with [f] a
+    Everything here is relative to the signature, a variable of the
+    section; the notations [⇝], [⇝*] and [≡] are local to it.  Outside,
+    the relations take the signature as their first argument, and
+    PTS.EmptySig gives the notations of the empty signature of lecture 6.
+
+    There is no η, neither for Π, Σ nor for the base types: with [f] a
     variable of function type, [λx. f x] and [f] are not convertible.
 
     Conversion [conv] is the reflexive, symmetric and transitive closure of
@@ -17,9 +25,14 @@
     evaluation strategy; the evaluator follows normal order, PTS.NormalOrder. *)
 
 From Stdlib Require Import Relations.
-From DepTypes.PTS Require Import Syntax.
+From DepTypes.PTS Require Import Syntax Signature.
 
 Reserved Notation "t ⇝ u" (at level 70, no associativity).
+Reserved Notation "t ⇝* u" (at level 70, no associativity).
+Reserved Notation "t ≡ u" (at level 70, no associativity).
+
+Section Reduction.
+Variable sg : signature.
 
 Inductive red1 : term -> term -> Prop :=
 (** contractions *)
@@ -28,6 +41,8 @@ Inductive red1 : term -> term -> Prop :=
 | R_UnitTt : forall C c, ElimUnit C c Tt ⇝ c
 | R_BoolTrue : forall C t f, ElimBool C t f BTrue ⇝ t
 | R_BoolFalse : forall C t f, ElimBool C t f BFalse ⇝ f
+| R_FstPair : forall a b, Fst (Pair a b) ⇝ a
+| R_SndPair : forall a b, Snd (Pair a b) ⇝ b
 (** congruences *)
 | R_PiDom : forall A A' B, A ⇝ A' -> Pi A B ⇝ Pi A' B
 | R_PiCod : forall A B B', B ⇝ B' -> Pi A B ⇝ Pi A B'
@@ -45,17 +60,27 @@ Inductive red1 : term -> term -> Prop :=
 | R_ElimBool2 : forall C t t' f b, t ⇝ t' -> ElimBool C t f b ⇝ ElimBool C t' f b
 | R_ElimBool3 : forall C t f f' b, f ⇝ f' -> ElimBool C t f b ⇝ ElimBool C t f' b
 | R_ElimBool4 : forall C t f b b', b ⇝ b' -> ElimBool C t f b ⇝ ElimBool C t f b'
+| R_SigmaDom : forall A A' B, A ⇝ A' -> Sigma A B ⇝ Sigma A' B
+| R_SigmaCod : forall A B B', B ⇝ B' -> Sigma A B ⇝ Sigma A B'
+| R_PairL : forall a a' b, a ⇝ a' -> Pair a b ⇝ Pair a' b
+| R_PairR : forall a b b', b ⇝ b' -> Pair a b ⇝ Pair a b'
+| R_Fst : forall p p', p ⇝ p' -> Fst p ⇝ Fst p'
+| R_Snd : forall p p', p ⇝ p' -> Snd p ⇝ Snd p'
+(** the contractions of the signature, last: their conclusions are
+    generic, so [constructor] tries the specific rules first *)
+| R_Delta : forall g b, sig_delta sg g = Some b -> Const g ⇝ b
+| R_Iota : forall t u, iota sg t = Some u -> t ⇝ u
 where "t ⇝ u" := (red1 t u).
 
 (** Multi-step reduction. *)
 Definition red : term -> term -> Prop := clos_refl_trans term red1.
 
-Notation "t ⇝* u" := (red t u) (at level 70, no associativity).
+Local Notation "t ⇝* u" := (red t u).
 
 (** Conversion. *)
 Definition conv : term -> term -> Prop := clos_refl_sym_trans term red1.
 
-Notation "t ≡ u" := (conv t u) (at level 70, no associativity).
+Local Notation "t ≡ u" := (conv t u).
 
 Lemma conv_refl : forall t, t ≡ t.
 Proof. intros t. apply rst_refl. Qed.
@@ -120,6 +145,11 @@ Fixpoint erase_ann (t : term) : term :=
   | BFalse => BFalse
   | ElimBool C t f b =>
       ElimBool (erase_ann C) (erase_ann t) (erase_ann f) (erase_ann b)
+  | Sigma A B => Sigma (erase_ann A) (erase_ann B)
+  | Pair a b => Pair (erase_ann a) (erase_ann b)
+  | Fst p => Fst (erase_ann p)
+  | Snd p => Snd (erase_ann p)
+  | Const g => Const g
   end.
 
 (** Multi-step congruences, one per former with subterms. *)
@@ -166,12 +196,31 @@ Proof.
   apply rt_refl.
 Qed.
 
+Lemma red_sigma : forall A A' B B', A ⇝* A' -> B ⇝* B' -> Sigma A B ⇝* Sigma A' B'.
+Proof.
+  intros A A' B B' HA HB.
+  red_cong (fun a => Sigma a B) HA. red_cong (fun b => Sigma A' b) HB. apply rt_refl.
+Qed.
+
+Lemma red_pair : forall a a' b b', a ⇝* a' -> b ⇝* b' -> Pair a b ⇝* Pair a' b'.
+Proof.
+  intros a a' b b' Ha Hb.
+  red_cong (fun x => Pair x b) Ha. red_cong (fun x => Pair a' x) Hb. apply rt_refl.
+Qed.
+
+Lemma red_fst : forall p p', p ⇝* p' -> Fst p ⇝* Fst p'.
+Proof. intros p p' H. red_cong Fst H. apply rt_refl. Qed.
+
+Lemma red_snd : forall p p', p ⇝* p' -> Snd p ⇝* Snd p'.
+Proof. intros p p' H. red_cong Snd H. apply rt_refl. Qed.
+
 Lemma red_erase : forall t, t ⇝* erase_ann t.
 Proof.
   induction t; cbn [erase_ann]; try apply rt_refl.
   all: first
     [ eapply rt_trans; [apply rt_step, R_Ann | assumption]
-    | auto using red_pi, red_lam, red_app, red_elim_void, red_elim_unit, red_elim_bool ].
+    | auto using red_pi, red_lam, red_app, red_elim_void, red_elim_unit, red_elim_bool,
+        red_sigma, red_pair, red_fst, red_snd ].
 Qed.
 
 Lemma erase_conv : forall t u, erase_ann t = erase_ann u -> t ≡ u.
@@ -186,3 +235,25 @@ Qed.
     A term without a one-step reduct. *)
 
 Definition normal (t : term) : Prop := forall u, ~ (t ⇝ u).
+End Reduction.
+
+(** The lemmas take their signature implicitly: it is fixed by their
+    statements. *)
+Arguments conv_refl {sg}.
+Arguments conv_sym {sg}.
+Arguments conv_trans {sg}.
+Arguments red_conv {sg}.
+Arguments red_ctx {sg}.
+Arguments conv_app_arg {sg}.
+Arguments red_pi {sg}.
+Arguments red_lam {sg}.
+Arguments red_app {sg}.
+Arguments red_elim_void {sg}.
+Arguments red_elim_unit {sg}.
+Arguments red_elim_bool {sg}.
+Arguments red_sigma {sg}.
+Arguments red_pair {sg}.
+Arguments red_fst {sg}.
+Arguments red_snd {sg}.
+Arguments red_erase {sg}.
+Arguments erase_conv {sg}.

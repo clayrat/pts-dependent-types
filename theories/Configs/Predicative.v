@@ -3,11 +3,12 @@
     Sorts Type_0, Type_1, ...; axioms [Type_i : Type_(i+1)] and rules
     [(Type_i, Type_j, Type_(max i j))].  Levels are explicit: no
     cumulativity and no level inference.  Void, Unit and Bool live in
-    Type_0.
+    Type_0.  Σ follows the rule of Π, [Σx:A. B : Type_(max i j)], and
+    terms may mention the constants of a signature.
 
-    [pure_predicative] is the same hierarchy without the primitives; it
-    is the target of the renaming [u_to_univ] of the sorts of U⁻, under
-    which the looping combinator must be rejected. *)
+    [pure_predicative] is the same hierarchy without the primitives, Σ
+    and constants; it is the target of the renaming [u_to_univ] of the
+    sorts of U⁻, under which the looping combinator must be rejected. *)
 
 From Stdlib Require Import Arith.
 From DepTypes.PTS Require Import Syntax Spec.
@@ -35,6 +36,8 @@ Definition predicative_table : pts_table := {|
   spec_axiom := univ_axiom;
   spec_rule := univ_rule;
   spec_prim := Some (Univ 0);
+  spec_sigma := univ_rule;
+  spec_decls := true;
 |}.
 
 Definition pure_predicative_table : pts_table := {|
@@ -42,6 +45,8 @@ Definition pure_predicative_table : pts_table := {|
   spec_axiom := univ_axiom;
   spec_rule := univ_rule;
   spec_prim := None;
+  spec_sigma _ _ := None;
+  spec_decls := false;
 |}.
 
 (** ∗, □, △ read as Type_0, Type_1, Type_2. *)

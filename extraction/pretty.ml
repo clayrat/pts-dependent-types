@@ -3,7 +3,9 @@
    Terms are printed with names in place of de Bruijn indices.  A binder
    whose domain is a sort is named A, B, …, any other x, y, …; a λ under
    an annotation takes its name from the annotated Π.  A Π whose body does
-   not use its variable is printed as an arrow.  A variable outside the
+   not use its variable is printed as an arrow, a Σ whose second component
+   does not depend on the first as a product A × B.  A constant is printed
+   by its name, an eliminator instance as elimD[j].  A variable outside the
    given names is printed as #k, its de Bruijn index in the unnamed outer
    context: trace events carry open terms without their context.
 
@@ -24,6 +26,12 @@ let pp_sort = function
   | Box -> "□"
   | Tri -> "△"
   | Univ i -> "Type" ^ subscript i
+
+let pp_gref = function
+  | Ind d -> d
+  | Ctor (_, c) -> c
+  | Elim (d, j) -> "elim" ^ d ^ "[" ^ string_of_int j ^ "]"
+  | Def f -> f
 
 let fresh candidates scope =
   let rec go suffix =
@@ -47,7 +55,7 @@ let lookup_name names n =
   | None -> "#" ^ string_of_int (n - List.length names)
 
 let atomic = function
-  | Srt _ | Var _ | Void | Unit | Tt | Bool | BTrue | BFalse -> true
+  | Srt _ | Var _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ -> true
   | _ -> false
 
 (* Levels: 0 binder, arrow or annotation; 1 application; 2 atom.  [hint]
@@ -84,6 +92,15 @@ let rec pp_at depth hint names level t =
     | ElimVoid (c, e) -> spine "elimVoid" [ c; e ]
     | ElimUnit (c, x, u) -> spine "elimUnit" [ c; x; u ]
     | ElimBool (c, x, y, b) -> spine "elimBool" [ c; x; y; b ]
+    | Sigma (a, b) when not (free_in 0 b) ->
+        paren 0 (pp names 1 a ^ " × " ^ pp ("_" :: names) 1 b)
+    | Sigma (a, b) ->
+        let x = binder_name (Some a) names in
+        paren 0 ("Σ" ^ x ^ ":" ^ pp names 0 a ^ ". " ^ pp (x :: names) 0 b)
+    | Pair (a, b) -> "⟨" ^ pp names 0 a ^ ", " ^ pp names 0 b ^ "⟩"
+    | Fst p -> spine "fst" [ p ]
+    | Snd p -> spine "snd" [ p ]
+    | Const g -> pp_gref g
 
 let pp_term ?(depth = max_int) ?(names = []) t = pp_at depth None names 0 t
 
@@ -119,6 +136,11 @@ let pp_error ?(depth = max_int) ?(names = []) e =
   | ENoPrimitives t -> pp t ^ ": the primitives are off in this system"
   | EBadFamily (c, expected, actual) ->
       "result family " ^ pp c ^ " is over " ^ pp actual ^ ", expected over " ^ pp expected
+  | ENoSigmaRule (t, s1, s2) ->
+      "no Σ-rule (" ^ pp_sort s1 ^ ", " ^ pp_sort s2 ^ ", _) for " ^ pp t
+  | ENotASigma (t, ty) -> pp t ^ " has type " ^ pp ty ^ ", not a Σ-type"
+  | ENoDecls t -> pp t ^ ": constants are off in this system"
+  | EUnknownConst g -> "the constant " ^ pp_gref g ^ " is not in the signature"
 
 let rec drop n l = if n <= 0 then l else match l with [] -> [] | _ :: l' -> drop (n - 1) l'
 
@@ -150,6 +172,12 @@ let pp_event ?(depth = max_int) ?(ctx = []) ?names ev =
       if term_eqb a t then "  " ^ pp a ^ " ≡ " ^ pp t
       else "  " ^ pp a ^ " ≡ " ^ pp t ^ ", both ⇝ " ^ pp v
   | EvFamily (c, d, s) -> "  family " ^ pp c ^ " over " ^ pp d ^ " into " ^ pp_sort s
+  | EvSigmaRule (s1, s2, s3) ->
+      "  Σ-rule (" ^ pp_sort s1 ^ ", " ^ pp_sort s2 ^ ", " ^ pp_sort s3 ^ ")"
+  | EvUnfoldSigma (t, ty, a, b) ->
+      let sigma = Sigma (a, b) in
+      if term_eqb ty sigma then "  " ^ pp t ^ " : " ^ pp ty
+      else "  " ^ pp t ^ " : " ^ pp ty ^ " ⇝ " ^ pp sigma
 
 let pp_answer ?(depth = max_int) ?(names = []) pp_value = function
   | Accepted a -> (match pp_value a with "" -> "accepted" | s -> "accepted: " ^ s)

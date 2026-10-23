@@ -1,18 +1,18 @@
 (** * Extraction driver
 
-    Exports the syntax, the PTS configurations, the bounded evaluator and
-    conversion, the checker with its entry points, and the lecture
-    examples into generated/deptypes.ml.  Proofs and relations stay in
+    Exports the syntax, the PTS configurations, signatures, the bounded
+    evaluator and conversion, the checker with its entry points, and the
+    lecture examples into generated/deptypes.ml.  Proofs and relations stay in
     Rocq; the extracted functions are the ones the soundness theorems are
     about.  Natural numbers (fuel, de Bruijn indices, universe levels) are
     OCaml ints, booleans are OCaml bools, and the names of the term
     builder (PTS.Named) are OCaml strings. *)
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNativeString.
-From DepTypes.PTS Require Import Syntax Named Spec Eval Check.
+From DepTypes.PTS Require Import Syntax Named Spec Signature Eval Check.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes.SystemU Require Import Looping Encodings.
-From DepTypes.MLTT Require Import Choose Eliminators.
+From DepTypes.MLTT Require Import Choose Eliminators Pairs Constants Families.
 From DepTypes.PCFTranslation Require Import Translate Programs.
 From PCF Require Examples OperationalSemantics.
 From DepTypes Require Import Examples.
@@ -31,7 +31,9 @@ Extract Inlined Constant PeanoNat.Nat.eqb => "(=)".
 Extract Inlined Constant PeanoNat.Nat.ltb => "(<)".
 
 Extraction "deptypes.ml"
-  term_eqb sort_eqb rename lift subst subst1 arrow free_in map_sorts lookup
+  term_eqb sort_eqb gref_eqb rename lift subst subst1 arrow times free_in map_sorts lookup
+  apps spine_head spine_args pis lams vars
+  sig_empty sig_add sig_type sig_delta ind_type ctor_type field_type elim_arity elim_view full_elim iota
   resolve resolve_ctx
   lambda_star system_u system_u_minus predicative pure_predicative u_to_univ
   classify normalize_trace normalize whnf convert
@@ -47,4 +49,9 @@ Extraction "deptypes.ml"
   universe_family cond choose_ty choose_family choose choose_swapped low_family
   types_ctx args_ctx open_ctx in_ctx term_in choose_at choose_fuel build
   elim_fuel void_ctx void_family void_elim unit_universe unit_family unit_elim unit_ctx
+  pair_fuel is_true true_sigma sigma_ctx
+  const_fuel nat_desc elim_nat_ty const_nat double_body base_entries nat_entries sg_nat_base sg_nat sg_nat_inactive iota_ctx
+  family_fuel vec_desc w_desc tr_desc elim_vec_ty elim_w_ty elim_tr_ty family_entries sg_families
+  vec_rule_ctx w_rule_ctx tr_rule_ctx tr_fork_ctx tr_twin_ctx two_bools vnot positions nat_w zero_w succ_w to_nat
+  second tree fork_tree twin_tree label
   PCF.Examples.add PCF.Examples.mul PCF.Examples.fact PCF.OperationalSemantics.evalFuel.

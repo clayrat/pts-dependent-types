@@ -16,11 +16,26 @@
     Both evaluators are total because recursion is bounded by fuel.  A
     timeout is inconclusive, not evidence of divergence or inequality.
     Conversely, [normalize_complete]: a normal form reachable by normal
-    order is found once the fuel covers the number of steps. *)
+    order is found once the fuel covers the number of steps.
+
+    Everything is relative to a signature, the variable of the section:
+    its δ- and ι-contractions are root redexes like β, and a full spine
+    of an eliminator instance is scanned object first. *)
 
 From Stdlib Require Import List Relations Lia.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Reduction NormalOrder.
+From DepTypes.PTS Require Import Syntax Signature Reduction NormalOrder.
+
+Section Eval.
+Variable sg : signature.
+Local Notation "t ⇝ u" := (red1 sg t u).
+Local Notation "t ⇝* u" := (red sg t u).
+Local Notation "t ≡ u" := (conv sg t u).
+Local Notation "t ⇝ₙ u" := (nstep sg t u).
+Local Notation "t ⇝ₙ* u" := (clos_refl_trans term (nstep sg) t u).
+Local Notation nf := (nf sg).
+Local Notation ne := (ne sg).
+Local Notation stuck := (stuck sg).
 
 (** ** One step of normal order *)
 
@@ -50,14 +65,19 @@ Definition next_head (s : shape) (rebuild : term -> term) (k : unit -> shape) : 
   end.
 
 (** The redexes at the root, shared by both evaluators: β, erasure of
-    an annotation, ι on a constructor. *)
+    an annotation, ι on a constructor or a pair, and δ and ι of the
+    signature. *)
 Definition contract (t : term) : option term :=
   match t with
   | App (Lam b) a => Some (subst1 b a)
+  | App _ _ => iota sg t
   | Ann t _ => Some t
   | ElimUnit _ c Tt => Some c
   | ElimBool _ t _ BTrue => Some t
   | ElimBool _ _ f BFalse => Some f
+  | Fst (Pair a _) => Some a
+  | Snd (Pair _ b) => Some b
+  | Const g => sig_delta sg g
   | _ => None
   end.
 
@@ -66,15 +86,27 @@ Fixpoint classify (t : term) : shape :=
   | Some u => Steps u
   | None =>
       match t with
-      | Var _ => IsNe
+      | Var _ | Const _ => IsNe
       | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse => IsNf
       | Pi A B =>
           next (classify A) (fun A' => Pi A' B) (fun _ =>
           next (classify B) (Pi A) (fun _ => IsNf))
+      | Sigma A B =>
+          next (classify A) (fun A' => Sigma A' B) (fun _ =>
+          next (classify B) (Sigma A) (fun _ => IsNf))
       | Lam b => next (classify b) Lam (fun _ => IsNf)
       | App f a =>
-          next_head (classify f) (fun f' => App f' a) (fun _ =>
-          next (classify a) (App f) (fun _ => IsNe))
+          if full_elim sg t then
+            next_head (classify a) (App f) (fun _ =>
+            next_head (classify f) (fun f' => App f' a) (fun _ => IsNe))
+          else
+            next_head (classify f) (fun f' => App f' a) (fun _ =>
+            next (classify a) (App f) (fun _ => IsNe))
+      | Pair a b =>
+          next (classify a) (fun a' => Pair a' b) (fun _ =>
+          next (classify b) (Pair a) (fun _ => IsNf))
+      | Fst p => next_head (classify p) Fst (fun _ => IsNe)
+      | Snd p => next_head (classify p) Snd (fun _ => IsNe)
       | Ann _ _ => IsStuck    (** unreachable: [contract] erases it *)
       | ElimVoid C e =>
           next_head (classify e) (ElimVoid C) (fun _ =>
@@ -97,7 +129,11 @@ Fixpoint head_step (t : term) : option term :=
   | Some u => Some u
   | None =>
       match t with
-      | App f a => option_map (fun f' => App f' a) (head_step f)
+      | App f a =>
+          if full_elim sg t then option_map (App f) (head_step a)
+          else option_map (fun f' => App f' a) (head_step f)
+      | Fst p => option_map Fst (head_step p)
+      | Snd p => option_map Snd (head_step p)
       | ElimVoid C e => option_map (ElimVoid C) (head_step e)
       | ElimUnit C c u => option_map (ElimUnit C c) (head_step u)
       | ElimBool C t f b => option_map (ElimBool C t f) (head_step b)
@@ -193,12 +229,16 @@ Definition shape_spec (t : term) (s : shape) : Prop :=
 
 Lemma contract_nstep : forall t u, contract t = Some u -> t ⇝ₙ u.
 Proof.
-  intros t u H. destruct t; cbn in H; try discriminate;
+  intros t u H. destruct t; cbn [contract] in H; try discriminate;
     repeat match type of H with
            | match ?x with _ => _ end = _ => destruct x; try discriminate
            end;
-    injection H as <-; constructor.
+    first [ injection H as <-; constructor | apply N_Iota; exact H | apply N_Delta; exact H ].
 Qed.
+
+(** Off a β-redex, the contraction of an application is ι. *)
+Lemma contract_app : forall f a, is_lam f = false -> contract (App f a) = iota sg (App f a).
+Proof. intros f a H. destruct f; try discriminate H; reflexivity. Qed.
 
 (** Closes a goal whose hypotheses give a component two incompatible
     shapes, or claim that a root redex is not one. *)
@@ -206,11 +246,13 @@ Ltac contra :=
   match goal with
   | H : ~ ne ?x, H' : ne ?x |- _ => exact (H H')
   | H : ~ nf ?x, H' : nf ?x |- _ => exact (H H')
-  | H : ~ nf ?x, H' : ne ?x |- _ => exact (H (NF_Ne _ H'))
+  | H : ~ nf ?x, H' : ne ?x |- _ => exact (H (NF_Ne _ _ H'))
   | H : forall u, ~ ?x ⇝ₙ u, H' : ?x ⇝ₙ _ |- _ => exact (H _ H')
   | H : nf ?x, H' : ?x ⇝ₙ _ |- _ => exact (nf_no_nstep _ _ H H')
   | H : ne ?x, H' : ?x ⇝ₙ _ |- _ => exact (ne_no_nstep _ _ H H')
   | H : contract _ = None |- _ => cbn in H; discriminate H
+  | H : iota _ _ = Some _ |- _ => no_iota
+  | _ => congruence
   end.
 
 (** The shape is truthful: a step of normal order, a neutral term, a
@@ -223,9 +265,22 @@ Proof.
       destruct (contract x) as [u|] eqn:Ec; [now apply contract_nstep | ]
     end.
   all: try (cbn in Ec; discriminate Ec).
-  all: try match goal with Ec : contract (App ?f _) = None |- _ =>
-         assert (is_lam f = false) by (destruct f; cbn in Ec; easy)
+  (* what the absence of a root redex tells *)
+  all: try match goal with Ec : contract (App ?f ?a) = None |- _ =>
+         let Hl := fresh "Hl" in
+         assert (Hl : is_lam f = false) by (destruct f; cbn in Ec; easy);
+         assert (iota sg (App f a) = None) by (rewrite <- (contract_app f a Hl); exact Ec)
        end.
+  all: try match goal with Ec : contract (Const ?g) = None |- _ =>
+         assert (sig_delta sg g = None) by exact Ec
+       end.
+  all: try match goal with Ec : contract (Fst ?p) = None |- _ =>
+         assert (is_pair p = false) by (destruct p; cbn in Ec; easy)
+       end.
+  all: try match goal with Ec : contract (Snd ?p) = None |- _ =>
+         assert (is_pair p = false) by (destruct p; cbn in Ec; easy)
+       end.
+  all: try match goal with |- context [full_elim ?s ?x] => destruct (full_elim s x) eqn:Ef end.
   all: repeat (cbn [next next_head shape_spec] in *;
                match goal with |- context [classify ?x] => destruct (classify x) end).
   all: repeat match goal with |- context [match ?x with _ => _ end] => destruct x end.
@@ -343,11 +398,24 @@ Proof.
     match type of H with context [contract ?x] =>
       destruct (contract x) as [v|] eqn:Ec; [injection H as <-; now apply contract_nstep | ]
     end; try discriminate.
+  all: try match goal with Ec : contract (App ?f ?a) = None |- _ =>
+         let Hl := fresh "Hl" in
+         assert (Hl : is_lam f = false) by (destruct f; cbn in Ec; easy);
+         assert (iota sg (App f a) = None) by (rewrite <- (contract_app f a Hl); exact Ec);
+         destruct (full_elim sg (App f a)) eqn:Ef; cbv beta iota in H
+       end.
+  all: try match goal with Ec : contract (Fst ?p) = None |- _ =>
+         assert (is_pair p = false) by (destruct p; cbn in Ec; easy) end.
+  all: try match goal with Ec : contract (Snd ?p) = None |- _ =>
+         assert (is_pair p = false) by (destruct p; cbn in Ec; easy) end.
   all: match type of H with
        | option_map _ ?x = _ => destruct x as [t'|] eqn:E; cbn in H
        end; try discriminate.
   all: injection H as <-;
-       first [ apply N_AppFun; [destruct t1; try reflexivity; cbn in Ec; discriminate Ec | ]
+       first [ apply N_ElimObj; [assumption | assumption | ]
+             | apply N_AppFun; [assumption | assumption | ]
+             | apply N_FstArg; [assumption | ]
+             | apply N_SndArg; [assumption | ]
              | apply N_ElimVoidScr | apply N_ElimUnitScr | apply N_ElimBoolScr ].
   all: match goal with
        | IH : forall u, _ = Some u -> ?x ⇝ₙ u |- ?x ⇝ₙ _ =>
@@ -432,3 +500,25 @@ Proof.
   apply conv_trans with u'; [apply erase_conv, E | ].
   apply conv_sym, red_conv, nsteps_red, (normalize_trace_reaches fuel), Hu'.
 Qed.
+End Eval.
+
+(** The lemmas take their signature implicitly: it is fixed by their
+    statements. *)
+Arguments contract_nstep {sg}.
+Arguments contract_app {sg}.
+Arguments classify_spec {sg}.
+Arguments classify_complete {sg}.
+Arguments classify_nf {sg}.
+Arguments normalize_trace_spec {sg}.
+Arguments normalize_trace_result {sg}.
+Arguments normalize_spec {sg}.
+Arguments normalize_step {sg}.
+Arguments normalize_nf {sg}.
+Arguments normalize_complete {sg}.
+Arguments head_step_nstep {sg}.
+Arguments whnf_reduces {sg}.
+Arguments convert_stuck_sound {sg}.
+Arguments convert_equal_reaches {sg}.
+Arguments convert_equal_sound {sg}.
+Arguments normalize_trace_reaches {sg}.
+Arguments joinable_sound {sg}.

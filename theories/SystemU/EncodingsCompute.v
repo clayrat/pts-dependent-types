@@ -23,7 +23,7 @@
 From Stdlib Require Import String List Relations Bool Arith Lia.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Reduction.
+From DepTypes.PTS Require Import Syntax Named Reduction Signature EmptySig.
 From DepTypes.SystemU Require Import Looping Encodings.
 
 Open Scope string_scope.

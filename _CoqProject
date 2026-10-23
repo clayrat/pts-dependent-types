@@ -19,6 +19,7 @@ theories/Common/Traced.v
 theories/PTS/Syntax.v
 theories/PTS/Named.v
 theories/PTS/Spec.v
+theories/PTS/Signature.v
 theories/PTS/Reduction.v
 theories/PTS/SubstLaws.v
 theories/PTS/NormalOrder.v
@@ -27,6 +28,7 @@ theories/PTS/Typing.v
 theories/PTS/Bidir.v
 theories/PTS/Check.v
 theories/PTS/CheckSound.v
+theories/PTS/EmptySig.v
 theories/Configs/Finite.v
 theories/Configs/Predicative.v
 theories/PCFTranslation/Source.v
@@ -38,6 +40,9 @@ theories/SystemU/Encodings.v
 theories/SystemU/EncodingsCompute.v
 theories/MLTT/Choose.v
 theories/MLTT/Eliminators.v
+theories/MLTT/Pairs.v
+theories/MLTT/Constants.v
+theories/MLTT/Families.v
 theories/Contracts.v
 theories/Examples.v
 theories/Tests.v

@@ -23,7 +23,7 @@
 From Stdlib Require Import String List Bool Arith Lia Relations.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Reduction Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Spec Reduction Bidir Check CheckSound Signature EmptySig.
 From DepTypes.Configs Require Import Finite.
 From DepTypes.SystemU Require Import Looping Encodings.
 From DepTypes.PCFTranslation Require Import Translate.
@@ -240,7 +240,7 @@ Proof.
   - destruct (IH H) as (n & Hi & Hn). exists (S n). rewrite Hi. split; [reflexivity | exact Hn].
 Qed.
 
-Lemma tctx_bwf : forall G, bwf_ctx system_u_minus (tctx G).
+Lemma tctx_bwf : forall G, bwf_ctx system_u_minus ∅ (tctx G).
 Proof.
   induction G as [|[x A] G IH]; [constructor | ].
   cbn. econstructor; [exact IH | apply tty_star | apply rt_refl].
@@ -378,7 +378,7 @@ Qed.
     well formed, the translated type admissible, and the term checks. *)
 Theorem translate_sound : forall G t A G' u,
   translate G t A = Ok (G', u) ->
-  G' = tctx G /\ bwf_ctx system_u_minus G' /\ btype system_u_minus G' (tty A) /\
+  G' = tctx G /\ bwf_ctx system_u_minus ∅ G' /\ btype system_u_minus ∅ G' (tty A) /\
   system_u_minus ;; G' ⊢ u ⇓ tty A.
 Proof.
   intros G t A G' u H. unfold translate in H.

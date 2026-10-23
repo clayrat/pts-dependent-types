@@ -24,7 +24,7 @@
 From Stdlib Require Import String List.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound Signature EmptySig.
 From DepTypes.Configs Require Import Finite Predicative.
 
 Open Scope string_scope.
@@ -148,8 +148,8 @@ Proof. vm_compute. repeat split. Qed.
 Definition looping_fuel : nat := 1000.
 
 Lemma accepted_synth : forall S fuel t A,
-  snd (run_infer S fuel [] t) = Accepted A -> S ;; [] ⊢ t ⇑ A.
-Proof. intros S fuel t A H. exact (proj2 (run_infer_sound S fuel [] t A H)). Qed.
+  snd (run_infer S ∅ fuel [] t) = Accepted A -> S ;; [] ⊢ t ⇑ A.
+Proof. intros S fuel t A H. exact (proj2 (run_infer_sound S ∅ fuel [] t A H)). Qed.
 
 Theorem looping0_typed : system_u_minus ;; [] ⊢ looping 0 ⇑ looping_ty.
 Proof. apply (accepted_synth _ looping_fuel). vm_compute. reflexivity. Qed.
@@ -164,7 +164,7 @@ Qed.
 
 (** As in the paper, [paradox : β] in the context [β : ∗, f : β → β]. *)
 Example paradox_typed :
-  snd (run_check system_u_minus looping_fuel [Pi (Var 0) (Var 1); Srt Star]
+  snd (run_check system_u_minus ∅ looping_fuel [Pi (Var 0) (Var 1); Srt Star]
          (build ["f"; "β"] paradox) (Var 1)) = Accepted tt.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -182,8 +182,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** [t] reduces to [f m], and [m] is joinable with [u]. *)
 Definition unfolds_to (fuel : nat) (t f u : term) : bool :=
-  match whnf fuel t with
-  | HeadForm (App f' m) => term_eqb f' f && joinable fuel m u
+  match whnf ∅ fuel t with
+  | HeadForm (App f' m) => term_eqb f' f && joinable ∅ fuel m u
   | _ => false
   end.
 
@@ -191,7 +191,7 @@ Lemma unfolds_to_sound : forall fuel t f u,
   unfolds_to fuel t f u = true -> t ≡ App f u.
 Proof.
   intros fuel t f u H. unfold unfolds_to in H.
-  destruct (whnf fuel t) as [v | v] eqn:W; [ | discriminate H].
+  destruct (whnf ∅ fuel t) as [v | v] eqn:W; [ | discriminate H].
   destruct v; try discriminate H.
   apply andb_prop in H as [Ef Hj]. apply term_eqb_eq in Ef. subst.
   apply conv_trans with (App f v2).
@@ -223,7 +223,7 @@ Qed.
     make [L₀] typable there: that needs completeness of the checker. *)
 
 Example looping_predicative_rejected :
-  snd (run_infer pure_predicative looping_fuel [] (map_sorts u_to_univ (looping 0)))
+  snd (run_infer pure_predicative ∅ looping_fuel [] (map_sorts u_to_univ (looping 0)))
   = Rejected (EMismatch (map_sorts u_to_univ (build ["i"] induct_body))
                         (Srt (Univ 0)) (Srt (Univ 2))).
 Proof. vm_compute. reflexivity. Qed.
