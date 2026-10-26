@@ -59,6 +59,15 @@ the positions of a recursive field, the instantiation of its indices with
 the positions, the earlier fields and the parameters, the order of several
 positions, and fields after a recursive one.
 
+`extracted.ml` converts between the native syntax and the extract's: terms,
+sorts and constant names both ways, and descriptions, signature entries,
+errors, events, answers and evaluation results from the native side.
+`diff.ml` uses it, and so do the differential tests of the lectures built
+on this kernel, which compile the native files here with their own. For
+them `pts_native.mli` also exposes parallel substitution and closedness,
+spines and telescopes, the lookups of a signature, the types of a
+description and the arguments of the methods in an ι-rule.
+
 Run the examples directly, as with `strictness-pcf/reference/pcf_native.ml`:
 
 ```sh

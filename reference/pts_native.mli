@@ -42,7 +42,19 @@ val predicative : spec
 
 val lift : int -> term -> term
 val subst1 : term -> term -> term
+val subst : (int -> term) -> term -> term    (* parallel: index n becomes [sb n] *)
+val closed_above : int -> term -> bool
+
+(** {1 Spines and telescopes} *)
+
 val apps : term -> term list -> term
+val spine : term -> term * term list
+val pis : term list -> term -> term
+val vars : int -> int -> term list
+(* [vars base n]: the variables of a telescope of n entries lying [base]
+   binders up, outermost first. *)
+val take : int -> 'a list -> 'a list
+val drop : int -> 'a list -> 'a list
 
 (** {1 Signatures} *)
 
@@ -66,7 +78,24 @@ val empty_signature : signature
 val sig_add : signature -> entry -> signature option
 (* None if the new entry is not closed; a signature built from
    [empty_signature] by [sig_add] is closed throughout. *)
+val telescope_closed : int -> term list -> bool
+val find_ind : signature -> string -> ind_desc option
+val find_elim : signature -> string -> int -> (term * bool) option
+val find_def : signature -> string -> (term * term) option
 val sig_type : signature -> gref -> term option
+
+(* The types of a description: [field_type D p l fd] of the field at
+   position l, in the context of the p parameters and the earlier fields;
+   [D : Π(Δ). Πθ̄. Type_i]; [c : Π(Δ). Π(fields). D Δ ū]. *)
+val field_type : string -> int -> int -> field -> term
+val ind_type : ind_desc -> term
+val ctor_type : ind_desc -> ctor_desc -> term
+
+(* The arguments of the method in an ι-rule: [method_args D j pre env fields
+   xs] gives each field and, after a recursive one, its hypothesis; [pre]
+   are the parameters, motive and methods, [env] the parameters, innermost
+   first. *)
+val method_args : string -> int -> term list -> term list -> field list -> term list -> term list
 val iota : signature -> term -> term option
 
 (** {1 Evaluation} *)
