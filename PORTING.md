@@ -15,7 +15,7 @@ re-checked by this project's build.
 | Here | Source | Commit | License | Changes |
 |---|---|---|---|---|
 | `theories/Common/Result.v` | modules-system-fw, `theories/Fw/Result.v` | `5a24fa7` | no license file | header comment only |
-| `theories/Common/Traced.v` | modules-system-fw, `theories/Fw/Traced.v` | `5a24fa7` | no license file | dropped the unused import of `Fw.Syntax`; header comment |
+| `theories/Common/Traced.v` | modules-system-fw, `theories/Fw/Traced.v` | `5a24fa7` | no license file | dropped the unused import of `Fw.Syntax`; header comment; `tbind_in`, `titer`, `tfold` and `titer_Forall` are new |
 
 ## Adapted proofs and code
 

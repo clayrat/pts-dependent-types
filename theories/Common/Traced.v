@@ -8,7 +8,11 @@
     it in chronological order.
 
     The lemmas decompose a successful run: [tbind_ok] splits a successful
-    [let!] into two successful steps, and [tbind_step] rebuilds one.
+    [let!] into two successful steps, the tactic [tbind_in] applies it to
+    a hypothesis, and [tbind_step] rebuilds one.  Over a list, [titer]
+    runs a step on every element in turn and [tfold] threads a value
+    through the steps; every step of a successful [titer] succeeds
+    ([titer_Forall]).
 
     Ported from modules-system-fw (see PORTING.md). *)
 
@@ -81,3 +85,34 @@ Notation "'let!' x ':=' m 'in' body" := (tbind m (fun x => body))
   (at level 200, x name, m at level 100, body at level 200).
 
 Ltac tfail_contra H := exfalso; eapply tfail_ok; exact H.
+
+(** Splits a successful [let!] in [H] into the step that gives [x], as
+    [Hx], and the rest, still [H]; the intermediate log stays anonymous.
+    The counterpart of [bind_in] of Common.Result. *)
+Ltac tbind_in H x Hx := apply tbind_ok in H as (? & x & Hx & H); cbv beta in H.
+
+(** ** Over lists *)
+
+Section Lists.
+  Context {Ev E : Type}.
+
+  Fixpoint titer {A} (f : A -> traced Ev E unit) (l : list A) : traced Ev E unit :=
+    match l with
+    | [] => tret tt
+    | a :: l' => let! _ := f a in titer f l'
+    end.
+
+  Fixpoint tfold {A B} (f : B -> A -> traced Ev E B) (b : B) (l : list A) : traced Ev E B :=
+    match l with
+    | [] => tret b
+    | a :: l' => let! b' := f b a in tfold f b' l'
+    end.
+
+  Lemma titer_Forall : forall {A} (f : A -> traced Ev E unit) l log log' u,
+    titer f l log = (log', Ok u) -> Forall (fun a => exists log1 log2 v, f a log1 = (log2, Ok v)) l.
+  Proof.
+    intros A f l. induction l as [|a l IH]; intros log log' u H; [constructor | ].
+    cbn in H. apply tbind_ok in H as (log1 & v & Ha & H).
+    constructor; [now exists log, log1, v | eapply IH; exact H].
+  Qed.
+End Lists.

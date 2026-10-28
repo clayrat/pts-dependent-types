@@ -175,6 +175,15 @@ Definition sig_add (sg : signature) (e : entry) : option signature :=
   | false => fun _ => None
   end eq_refl.
 
+(** An entry that is added extends the signature by exactly itself. *)
+Lemma sig_add_entries : forall sg e sg', sig_add sg e = Some sg' -> sig_entries sg' = e :: sig_entries sg.
+Proof.
+  intros sg e sg' H. unfold sig_add in H.
+  revert H. generalize (@eq_refl bool (entry_closed e)).
+  generalize (entry_closed e) at 2 3. intros b Hb.
+  destruct b; intros H; [injection H as <-; reflexivity | discriminate H].
+Qed.
+
 (** ** Lookup
 
     The newest entry of a name wins: an instance registered again with

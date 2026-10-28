@@ -50,6 +50,7 @@ val closed_above : int -> term -> bool
 val apps : term -> term list -> term
 val spine : term -> term * term list
 val pis : term list -> term -> term
+val lams : int -> term -> term
 val vars : int -> int -> term list
 (* [vars base n]: the variables of a telescope of n entries lying [base]
    binders up, outermost first. *)
