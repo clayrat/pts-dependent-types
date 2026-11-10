@@ -1,6 +1,7 @@
 (* Conversions between the syntax of the native reference and the Rocq
    extract: terms, sorts and constant names both ways; descriptions,
-   signature entries, errors, events, answers and evaluation results from
+   signature entries, errors, events, answers and the results of both
+   evaluators from
    the native side, for comparison with the extract.  Shared by [diff.ml]
    and by the differential tests of the lectures built on this kernel. *)
 
@@ -8,18 +9,20 @@ module X = Deptypes
 module N = Pts_native
 
 let sort_of_extracted = function
-  | X.Star -> N.Star | X.Box -> N.Box | X.Tri -> N.Tri | X.Univ i -> N.Univ i
+  | X.Star -> N.Star | X.Box -> N.Box | X.Tri -> N.Tri | X.Univ i -> N.Univ i | X.Prp -> N.Prp
 
 let sort_to_extracted = function
-  | N.Star -> X.Star | N.Box -> X.Box | N.Tri -> X.Tri | N.Univ i -> X.Univ i
+  | N.Star -> X.Star | N.Box -> X.Box | N.Tri -> X.Tri | N.Univ i -> X.Univ i | N.Prp -> X.Prp
 
 let gref_of_extracted = function
   | X.Ind d -> N.Ind d | X.Ctor (d, c) -> N.Ctor (d, c)
-  | X.Elim (d, j) -> N.Elim (d, j) | X.Def f -> N.Def f
+  | X.Elim (d, s) -> N.Elim (d, sort_of_extracted s) | X.Def f -> N.Def f
 
 let gref_to_extracted = function
   | N.Ind d -> X.Ind d | N.Ctor (d, c) -> X.Ctor (d, c)
-  | N.Elim (d, j) -> X.Elim (d, j) | N.Def f -> X.Def f
+  | N.Elim (d, s) -> X.Elim (d, sort_to_extracted s) | N.Def f -> X.Def f
+
+let elim_class_to_extracted = function N.PropOnly -> X.PropOnly | N.AllSorts -> X.AllSorts
 
 let rec term_of_extracted = function
   | X.Srt s -> N.Srt (sort_of_extracted s)
@@ -42,6 +45,10 @@ let rec term_of_extracted = function
   | X.Fst p -> N.Fst (term_of_extracted p)
   | X.Snd p -> N.Snd (term_of_extracted p)
   | X.Const g -> N.Const (gref_of_extracted g)
+  | X.Case (d, s, m, x, bs) ->
+      N.Case (d, sort_of_extracted s, term_of_extracted m, term_of_extracted x,
+              List.map term_of_extracted bs)
+  | X.Fix (a, k, b) -> N.Fix (term_of_extracted a, k, term_of_extracted b)
 
 let rec term_to_extracted = function
   | N.Srt s -> X.Srt (sort_to_extracted s)
@@ -64,6 +71,10 @@ let rec term_to_extracted = function
   | N.Fst p -> X.Fst (term_to_extracted p)
   | N.Snd p -> X.Snd (term_to_extracted p)
   | N.Const g -> X.Const (gref_to_extracted g)
+  | N.Case (d, s, m, x, bs) ->
+      X.Case (d, sort_to_extracted s, term_to_extracted m, term_to_extracted x,
+              List.map term_to_extracted bs)
+  | N.Fix (a, k, b) -> X.Fix (term_to_extracted a, k, term_to_extracted b)
 
 let field_to_extracted = function
   | N.FArg a -> X.FArg (term_to_extracted a)
@@ -79,13 +90,26 @@ let desc_to_extracted d = {
   X.ind_name = d.N.ind_name;
   ind_params = List.map term_to_extracted d.N.ind_params;
   ind_indices = List.map term_to_extracted d.N.ind_indices;
-  ind_level = d.N.ind_level;
+  ind_sort = sort_to_extracted d.N.ind_sort;
+  ind_elim = elim_class_to_extracted d.N.ind_elim;
   ind_ctors = List.map ctor_to_extracted d.N.ind_ctors }
 
 let entry_to_extracted = function
   | N.EInd d -> X.EInd (desc_to_extracted d)
-  | N.EElim (d, j, ty, active) -> X.EElim (d, j, term_to_extracted ty, active)
+  | N.EElim (d, s, ty, active) -> X.EElim (d, sort_to_extracted s, term_to_extracted ty, active)
   | N.EDef (f, ty, body) -> X.EDef (f, term_to_extracted ty, term_to_extracted body)
+
+let mark_to_extracted = function
+  | N.Large -> X.Large | N.Arg -> X.Arg | N.Sub m -> X.Sub m | N.Self -> X.Self
+
+let guard_error_to_extracted = function
+  | N.GPartialCall t -> X.GPartialCall (term_to_extracted t)
+  | N.GNotSubterm (t, a) -> X.GNotSubterm (term_to_extracted t, term_to_extracted a)
+  | N.GShortBody b -> X.GShortBody (term_to_extracted b)
+
+let guard_result_to_extracted = function
+  | Ok () -> X.Ok ()
+  | Error e -> X.Err (guard_error_to_extracted e)
 
 let error_to_extracted = function
   | N.EUnboundVar n -> X.EUnboundVar n
@@ -111,6 +135,14 @@ let error_to_extracted = function
   | N.ENotASigma (t, ty) -> X.ENotASigma (term_to_extracted t, term_to_extracted ty)
   | N.ENoDecls t -> X.ENoDecls (term_to_extracted t)
   | N.EUnknownConst g -> X.EUnknownConst (gref_to_extracted g)
+  | N.ENotInductive (t, d, ty) -> X.ENotInductive (term_to_extracted t, d, term_to_extracted ty)
+  | N.EElimSort (d, s) -> X.EElimSort (d, sort_to_extracted s)
+  | N.EBranchCount (t, k, n) -> X.EBranchCount (term_to_extracted t, k, n)
+  | N.ENoStructArg (t, k, ty) -> X.ENoStructArg (term_to_extracted t, k, term_to_extracted ty)
+  | N.EStructNotInductive (t, k, ty) ->
+      X.EStructNotInductive (term_to_extracted t, k, term_to_extracted ty)
+  | N.EFixBody (t, k) -> X.EFixBody (term_to_extracted t, k)
+  | N.ENotGuarded (t, e) -> X.ENotGuarded (term_to_extracted t, guard_error_to_extracted e)
 
 let event_to_extracted = function
   | N.EvCtxEntry (n, ty) -> X.EvCtxEntry (n, term_to_extracted ty)
@@ -136,6 +168,11 @@ let event_to_extracted = function
   | N.EvUnfoldSigma (t, ty, a, b) ->
       X.EvUnfoldSigma (term_to_extracted t, term_to_extracted ty,
                        term_to_extracted a, term_to_extracted b)
+  | N.EvCase (d, s, ps, us) ->
+      X.EvCase (d, sort_to_extracted s, List.map term_to_extracted ps, List.map term_to_extracted us)
+  | N.EvBranch (c, ty) -> X.EvBranch (c, term_to_extracted ty)
+  | N.EvFix (k, d) -> X.EvFix (k, d)
+  | N.EvGuard k -> X.EvGuard k
 
 let answer_to_extracted value = function
   | N.Accepted a -> X.Accepted (value a)
@@ -160,3 +197,8 @@ let conv_to_extracted = function
   | N.ConvDifferent -> X.ConvDifferent
   | N.ConvOutOfFuel -> X.ConvOutOfFuel
   | N.ConvStuck -> X.ConvStuck
+
+let cbv_to_extracted = function
+  | N.CbvValue t -> X.CbvValue (term_to_extracted t)
+  | N.CbvStuck t -> X.CbvStuck (term_to_extracted t)
+  | N.CbvOutOfFuel -> X.CbvOutOfFuel

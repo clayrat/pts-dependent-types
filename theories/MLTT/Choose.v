@@ -25,9 +25,11 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound Signature EmptySig.
+From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound Signature EmptySig Runs.
+(** Re-exported for the projects that import [in_ctx] and [term_in] from
+    here, as SystemU.Looping does for [build]. *)
+From DepTypes.PTS Require Export Build.
 From DepTypes.Configs Require Import Predicative.
-From DepTypes.SystemU Require Import Looping.
 
 Open Scope string_scope.
 Open Scope nterm_scope.
@@ -52,15 +54,6 @@ Definition types_ctx : list (string * nterm) := [("B", Type@ 0); ("A", Type@ 0)]
 Definition args_ctx : list (string * nterm) := [("c", NVar "B"); ("a", NVar "A")] ++ types_ctx.
 Definition open_ctx : list (string * nterm) := ("b", NBool) :: args_ctx.
 
-(** A named context and a term in it, as de Bruijn terms. *)
-Definition in_ctx (g : list (string * nterm)) : ctx :=
-  match resolve_ctx g with
-  | Ok (_, G) => G
-  | Err _ => []
-  end.
-
-Definition term_in (g : list (string * nterm)) (t : nterm) : term := build (map fst g) t.
-
 Definition choose_at (b : nterm) : nterm := choose b "a" "c".
 
 Definition choose_fuel : nat := 100.
@@ -83,28 +76,24 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** ** Typing and evaluation *)
 
-Lemma accepted_check : forall S fuel G t A,
-  snd (run_check S ∅ fuel G t A) = Accepted tt -> S ;; G ⊢ t ⇓ A.
-Proof. intros S fuel G t A H. exact (proj2 (proj2 (run_check_sound S ∅ fuel G t A tt H))). Qed.
-
 Theorem choose_typed :
   predicative ;; in_ctx types_ctx ⊢ term_in types_ctx choose ⇓ term_in types_ctx choose_ty.
-Proof. apply (accepted_check _ choose_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ choose_fuel). vm_compute. reflexivity. Qed.
 
 (** [choose true a c : A]: the type [if true then A else B] computes to
     [A]. *)
 Theorem choose_true_typed :
   predicative ;; in_ctx args_ctx ⊢ term_in args_ctx (choose_at NTrue) ⇓ term_in args_ctx "A".
-Proof. apply (accepted_check _ choose_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ choose_fuel). vm_compute. reflexivity. Qed.
 
 Theorem choose_false_typed :
   predicative ;; in_ctx args_ctx ⊢ term_in args_ctx (choose_at NFalse) ⇓ term_in args_ctx "B".
-Proof. apply (accepted_check _ choose_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ choose_fuel). vm_compute. reflexivity. Qed.
 
 (** The type synthesized for [choose true a c] is [if true then A else B]
     itself; conversion computes it to [A]. *)
 Example choose_true_synthesizes :
-  snd (run_infer predicative ∅ choose_fuel (in_ctx args_ctx) (term_in args_ctx (choose_at NTrue)))
+  infers predicative ∅ choose_fuel args_ctx (choose_at NTrue)
   = Accepted (term_in args_ctx (cond NTrue)).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -124,7 +113,7 @@ Proof. split; vm_compute; reflexivity. Qed.
     else B], whose normal form is a neutral eliminator, and it does not
     check against [A]. *)
 Example choose_open_synthesizes :
-  snd (run_infer predicative ∅ choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b")))
+  infers predicative ∅ choose_fuel open_ctx (choose_at "b")
   = Accepted (term_in open_ctx (cond "b")).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -135,8 +124,7 @@ Example cond_open_neutral :
 Proof. vm_compute. reflexivity. Qed.
 
 Example choose_open_not_A :
-  snd (run_check predicative ∅ choose_fuel (in_ctx open_ctx) (term_in open_ctx (choose_at "b"))
-         (term_in open_ctx "A"))
+  checks predicative ∅ choose_fuel open_ctx (choose_at "b") "A"
   = Rejected (EMismatch (term_in open_ctx (choose_at "b")) (term_in open_ctx "A")
                         (term_in open_ctx (cond "b"))).
 Proof. vm_compute. reflexivity. Qed.
@@ -156,8 +144,7 @@ Example swapped_terms_resolve :
 Proof. vm_compute. reflexivity. Qed.
 
 Example choose_swapped_rejected :
-  snd (run_check predicative ∅ choose_fuel (in_ctx types_ctx)
-         (term_in types_ctx choose_swapped) (term_in types_ctx choose_ty))
+  checks predicative ∅ choose_fuel types_ctx choose_swapped choose_ty
   = Rejected (EMismatch (build body_names "y") (build body_names (choose_family NTrue))
                         (build body_names "B")).
 Proof. vm_compute. reflexivity. Qed.
@@ -170,6 +157,6 @@ Example low_family_resolves : resolves [] low_family = true.
 Proof. reflexivity. Qed.
 
 Example low_family_rejected :
-  snd (run_infer predicative ∅ choose_fuel [] (build [] low_family))
+  infers predicative ∅ choose_fuel [] low_family
   = Rejected (EMismatch (Srt (Univ 0)) (Srt (Univ 0)) (Srt (Univ 1))).
 Proof. vm_compute. reflexivity. Qed.

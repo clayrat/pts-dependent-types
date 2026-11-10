@@ -1,10 +1,9 @@
 (* The eliminators of Void and Unit, assembled independently with the builder
    of looping.ml, as theories/MLTT/Eliminators.v. *)
 
-open Looping
+open Named
 module P = Pts_native
 
-let universe i = Sort (P.Univ i)
 
 (* Void in the context A : Type0, v : Void. *)
 let void_ctx = ["v", Const P.Void; "A", universe 0]

@@ -1,10 +1,17 @@
-(** * Finite PTS configurations: λ∗, U and U⁻
+(** * Finite PTS configurations: λ∗, U, U⁻ and λC
 
     | System | Sorts   | Axioms      | Rules (abbreviated)               |
     |--------|---------|-------------|-----------------------------------|
     | λ∗     | ∗       | ∗:∗         | (∗,∗)                             |
     | U⁻     | ∗, □, △ | ∗:□, □:△    | (∗,∗), (□,∗), (□,□), (△,□)        |
     | U      | ∗, □, △ | ∗:□, □:△    | the rules of U⁻ and (△,∗)         |
+    | λC     | ∗, □    | ∗:□         | (∗,∗), (□,∗), (□,□), (∗,□)        |
+
+    λC, the Calculus of Constructions, is the top of Barendregt's λ-cube:
+    all four rules over ∗ and □, the product taking the sort of its
+    codomain, as in the CoC checker of Hirrolot's gist.  It differs from
+    U⁻ by the rule (∗,□) of families indexed by terms and by the missing
+    △, so □ has no type.
 
     None of them has the MLTT primitives, Σ or constants.  The checker terminates on U⁻
     and U only thanks to the strong normalization of their type level;
@@ -15,7 +22,7 @@ From DepTypes.PTS Require Import Syntax Spec.
 Definition is_named_sort (s : sort) : bool :=
   match s with
   | Star | Box | Tri => true
-  | Univ _ => false
+  | Univ _ | Prp => false
   end.
 
 Definition u_axiom (s : sort) : option sort :=
@@ -73,6 +80,30 @@ Definition u_table : pts_table := {|
   spec_decls := false;
 |}.
 
+(** ** λC *)
+
+Definition is_coc_sort (s : sort) : bool :=
+  match s with
+  | Star | Box => true
+  | _ => false
+  end.
+
+(** All four rules (s₁, s₂, s₂) over ∗ and □. *)
+Definition coc_rule (s1 s2 : sort) : option sort :=
+  match s1, s2 with
+  | (Star | Box), (Star | Box) => Some s2
+  | _, _ => None
+  end.
+
+Definition coc_table : pts_table := {|
+  spec_sort := is_coc_sort;
+  spec_axiom s := match s with Star => Some Box | _ => None end;
+  spec_rule := coc_rule;
+  spec_prim := None;
+  spec_sigma _ _ := None;
+  spec_decls := false;
+|}.
+
 (** ** Specifications *)
 
 Lemma lambda_star_closed : table_closed lambda_star_table.
@@ -84,6 +115,10 @@ Proof. solve_table_closed. Qed.
 Lemma u_closed : table_closed u_table.
 Proof. solve_table_closed. Qed.
 
+Lemma coc_closed : table_closed coc_table.
+Proof. solve_table_closed. Qed.
+
 Definition lambda_star : spec := {| spec_table := lambda_star_table; spec_wf := lambda_star_closed |}.
 Definition system_u_minus : spec := {| spec_table := u_minus_table; spec_wf := u_minus_closed |}.
 Definition system_u : spec := {| spec_table := u_table; spec_wf := u_closed |}.
+Definition coc : spec := {| spec_table := coc_table; spec_wf := coc_closed |}.

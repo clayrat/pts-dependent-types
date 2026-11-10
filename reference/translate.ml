@@ -5,7 +5,7 @@
    same first error.  The target terms are assembled with the builder and
    the encodings of looping.ml and encodings.ml. *)
 
-open Looping
+open Named
 module E = Encodings
 
 type ty = Nat | Arrow of ty * ty
@@ -57,7 +57,7 @@ let rec infer (g : ctx) t =
       (match ft with
        | Arrow (a, b) -> let* u = check g u a in Ok (call f' [u], b)
        | Nat -> Error (NotFun (f, Nat)))
-  | Fix (a, u) -> let* u = check g u (Arrow (a, a)) in Ok (call l0 [tr_ty a; u], a)
+  | Fix (a, u) -> let* u = check g u (Arrow (a, a)) in Ok (call Looping.l0 [tr_ty a; u], a)
   | Ann (u, a) -> let* u = check g u a in Ok (ann u (tr_ty a), a)
   | Lam _ | Ifz _ -> Error (NoSynth t)
 

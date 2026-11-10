@@ -5,7 +5,11 @@
    an annotation takes its name from the annotated Π.  A Π whose body does
    not use its variable is printed as an arrow, a Σ whose second component
    does not depend on the first as a product A × B.  A constant is printed
-   by its name, an eliminator instance as elimD[j].  A variable outside the
+   by its name, an eliminator instance as elimD[j] for motives into Type_j
+   and elimD[Prop] into Prop.  A match on D into a sort is printed like
+   an instance, matchD[j] x return P with b₁ | … end, with its branches
+   in the order of the constructors; a fix as fix f : A {struct k} := b.
+   A variable outside the
    given names is printed as #k, its de Bruijn index in the unnamed outer
    context: trace events carry open terms without their context.
 
@@ -26,11 +30,14 @@ let pp_sort = function
   | Box -> "□"
   | Tri -> "△"
   | Univ i -> "Type" ^ subscript i
+  | Prp -> "Prop"
+
+let pp_elim_sort = function Univ j -> string_of_int j | s -> pp_sort s
 
 let pp_gref = function
   | Ind d -> d
   | Ctor (_, c) -> c
-  | Elim (d, j) -> "elim" ^ d ^ "[" ^ string_of_int j ^ "]"
+  | Elim (d, s) -> "elim" ^ d ^ "[" ^ pp_elim_sort s ^ "]"
   | Def f -> f
 
 let fresh candidates scope =
@@ -43,6 +50,7 @@ let fresh candidates scope =
 
 let type_names = [ "A"; "B"; "C"; "X"; "Y"; "Z" ]
 let term_names = [ "x"; "y"; "z"; "u"; "v"; "w" ]
+let fix_names = [ "f"; "g"; "h" ]
 
 let binder_name domain scope =
   match domain with
@@ -101,6 +109,15 @@ let rec pp_at depth hint names level t =
     | Fst p -> spine "fst" [ p ]
     | Snd p -> spine "snd" [ p ]
     | Const g -> pp_gref g
+    | Case (d, s, m, x, bs) ->
+        paren 0
+          ("match" ^ d ^ "[" ^ pp_elim_sort s ^ "] " ^ pp names 1 x ^ " return " ^ pp names 1 m
+           ^ " with " ^ String.concat " | " (List.map (pp names 0) bs) ^ " end")
+    | Fix (a, k, b) ->
+        let f = fresh fix_names names in
+        paren 0
+          ("fix " ^ f ^ " : " ^ pp names 0 a ^ " {struct " ^ string_of_int k ^ "} := "
+           ^ pp_at (depth - 1) (Some a) (f :: names) 0 b)
 
 let pp_term ?(depth = max_int) ?(names = []) t = pp_at depth None names 0 t
 
@@ -116,6 +133,15 @@ let pp_ctx (g : ctx) =
     | _ -> []
   in
   match entries g names with [] -> "·" | es -> String.concat ", " es
+
+(* What the guard of fix refuses; [pp_error] prints the same under
+   "the guard refuses". *)
+let pp_guard_error ?(depth = max_int) ?(names = []) e =
+  let pp = pp_term ~depth ~names in
+  match e with
+  | GPartialCall c -> "the partial call " ^ pp c ^ ": the structural argument is missing"
+  | GNotSubterm (c, a) -> "the call " ^ pp c ^ ": " ^ pp a ^ " is not a strict subterm of the structural argument"
+  | GShortBody b -> "a body without its leading λ: " ^ pp b ^ " is not a λ"
 
 let pp_error ?(depth = max_int) ?(names = []) e =
   let pp = pp_term ~depth ~names in
@@ -141,6 +167,19 @@ let pp_error ?(depth = max_int) ?(names = []) e =
   | ENotASigma (t, ty) -> pp t ^ " has type " ^ pp ty ^ ", not a Σ-type"
   | ENoDecls t -> pp t ^ ": constants are off in this system"
   | EUnknownConst g -> "the constant " ^ pp_gref g ^ " is not in the signature"
+  | ENotInductive (x, d, ty) -> pp x ^ " has type " ^ pp ty ^ ", not an element of " ^ d
+  | EElimSort (d, s) ->
+      "the category of elimination of " ^ d ^ " does not allow motives in " ^ pp_sort s
+  | EBranchCount (t, k, n) ->
+      pp t ^ ": " ^ string_of_int n ^ " branches for " ^ string_of_int k ^ " constructors"
+  | ENoStructArg (t, k, ty) ->
+      pp t ^ ": no argument " ^ string_of_int k ^ " in its type, " ^ pp ty ^ " is not a Π-type"
+  | EStructNotInductive (t, k, ty) ->
+      pp t ^ ": its structural argument " ^ string_of_int k ^ " has type " ^ pp ty
+      ^ ", not an inductive type"
+  | EFixBody (t, k) ->
+      pp t ^ ": its body does not start with " ^ string_of_int (k + 1) ^ " λ"
+  | ENotGuarded (_, g) -> "the guard refuses " ^ pp_guard_error ~depth ~names g
 
 let rec drop n l = if n <= 0 then l else match l with [] -> [] | _ :: l' -> drop (n - 1) l'
 
@@ -178,6 +217,11 @@ let pp_event ?(depth = max_int) ?(ctx = []) ?names ev =
       let sigma = Sigma (a, b) in
       if term_eqb ty sigma then "  " ^ pp t ^ " : " ^ pp ty
       else "  " ^ pp t ^ " : " ^ pp ty ^ " ⇝ " ^ pp sigma
+  | EvCase (d, s, ps, us) ->
+      "  match on " ^ pp (apps (Const (Ind d)) (ps @ us)) ^ " into " ^ pp_sort s
+  | EvBranch (c, ty) -> "  branch " ^ c ^ " : " ^ pp ty
+  | EvFix (k, d) -> "  fix structural in its argument " ^ string_of_int k ^ " of " ^ d
+  | EvGuard k -> "  guard: every recursive call is on a strict subterm of argument " ^ string_of_int k
 
 let pp_answer ?(depth = max_int) ?(names = []) pp_value = function
   | Accepted a -> (match pp_value a with "" -> "accepted" | s -> "accepted: " ^ s)
@@ -194,3 +238,9 @@ let pp_eval_result ?(depth = max_int) ?(names = []) = function
   | NormalForm t -> "normal form " ^ pp_term ~depth ~names t
   | StuckTerm t -> "stuck at " ^ pp_term ~depth ~names t
   | OutOfFuel t -> "out of fuel at " ^ pp_term ~depth ~names t
+
+let pp_cbv_result ?(depth = max_int) ?(names = []) = function
+  | CbvValue t -> "value " ^ pp_term ~depth ~names t
+  | CbvStuck t -> "stuck at " ^ pp_term ~depth ~names t
+  | CbvOutOfFuel -> "out of fuel"
+

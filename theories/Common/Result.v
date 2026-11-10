@@ -6,7 +6,7 @@
 
     The lemmas invert a success: [bind_ok] splits a successful [let*]
     into two successful steps, and the tactic [bind_in] applies it to a
-    hypothesis.
+    hypothesis; [mapM_ok] splits a successful [mapM] into its elements.
 
     Ported from modules-system-fw (see PORTING.md). *)
 
@@ -76,5 +76,15 @@ Proof. intros E E' A f r a H. destruct r; cbn in H; congruence. Qed.
 
 Lemma require_ok : forall {E} b (e : E) u, require b e = Ok u -> b = true.
 Proof. intros E [] e u H; [ reflexivity | discriminate ]. Qed.
+
+(** A successful [mapM] succeeds on every element. *)
+Lemma mapM_ok : forall {E A B} (f : A -> result E B) l bs,
+  mapM f l = Ok bs -> Forall2 (fun a b => f a = Ok b) l bs.
+Proof.
+  intros E A B f l. induction l as [|a l IH]; intros bs H; cbn in H.
+  - injection H as <-. constructor.
+  - apply bind_ok in H as (b & Hb & H). apply bind_ok in H as (bs' & Hbs & H).
+    injection H as <-. constructor; [exact Hb | exact (IH _ Hbs)].
+Qed.
 
 Ltac bind_in H x Hx := apply bind_ok in H as (x & Hx & H); cbv beta zeta in H.

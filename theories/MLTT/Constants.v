@@ -27,16 +27,14 @@
       the types of constants: with [c : (tt → tt) → Bool] it accepts
       [c (λx. x)], and with the δ-constant [f := tt] at [Bool → Bool] it
       accepts [f true : Bool], which normal order takes to the stuck
-      [tt true].  The declarative obligations of Contracts.v therefore
+      [tt true].  The declarative obligations of PTS/Contracts.v therefore
       assume a type-correct signature. *)
 
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound Build Runs.
 From DepTypes.Configs Require Import Finite Predicative.
-From DepTypes.SystemU Require Import Looping.
-From DepTypes.MLTT Require Import Choose.
 
 Open Scope string_scope.
 Open Scope nterm_scope.
@@ -46,18 +44,21 @@ Definition const_fuel : nat := 100.
 (** ** The signature *)
 
 Definition nat_desc : ind_desc := {|
-  ind_name := "Nat"; ind_params := []; ind_indices := []; ind_level := 0;
+  ind_name := "Nat"; ind_params := []; ind_indices := []; ind_sort := Univ 0; ind_elim := AllSorts;
   ind_ctors := [ {| ctor_name := "zero"; ctor_fields := []; ctor_indices := [] |};
                  {| ctor_name := "succ"; ctor_fields := [FRec [] []]; ctor_indices := [] |} ] |}.
 
 Definition Nat : nterm := NConst (Ind "Nat").
 Definition zero : nterm := NConst (Ctor "Nat" "zero").
 Definition succ : nterm := NConst (Ctor "Nat" "succ").
-Definition elim_nat : nterm := NConst (Elim "Nat" 0).
+Definition elim_nat : nterm := NConst (Elim "Nat" (Univ 0)).
 Definition double : nterm := NConst (Def "double").
 
-Definition elim_nat_ty : nterm :=
-  Π "P" : (Nat ~> Type@ 0), "P" zero ~> (Π "n" : Nat, "P" "n" ~> "P" (succ "n")) ~> Π "n" : Nat, "P" "n".
+(** The type of [elimNat[j]], for motives into [Type_j]. *)
+Definition elim_nat_ty_at (j : nat) : nterm :=
+  Π "P" : (Nat ~> Type@ j), "P" zero ~> (Π "n" : Nat, "P" "n" ~> "P" (succ "n")) ~> Π "n" : Nat, "P" "n".
+
+Definition elim_nat_ty : nterm := elim_nat_ty_at 0.
 
 Definition const_nat : nterm := (λ "_", Nat) ∷ (Nat ~> Type@ 0).
 Definition double_body : nterm := λ "n", elim_nat const_nat zero (λ "m", λ "r", succ (succ "r")) "n".
@@ -65,7 +66,7 @@ Definition double_body : nterm := λ "n", elim_nat const_nat zero (λ "m", λ "r
 (** ℕ and its eliminator: the signature in which the body of [double] is
     checked, before [double] is registered. *)
 Definition base_entries (active : bool) : list entry :=
-  [EElim "Nat" 0 (build [] elim_nat_ty) active; EInd nat_desc].
+  [EElim "Nat" (Univ 0) (build [] elim_nat_ty) active; EInd nat_desc].
 
 Definition nat_entries (active : bool) : list entry :=
   EDef "double" (build [] (Nat ~> Nat)) (build [] double_body) :: base_entries active.
@@ -73,10 +74,6 @@ Definition nat_entries (active : bool) : list entry :=
 Definition sg_nat_base : signature := {| sig_entries := base_entries true; sig_wf := eq_refl |}.
 Definition sg_nat : signature := {| sig_entries := nat_entries true; sig_wf := eq_refl |}.
 Definition sg_nat_inactive : signature := {| sig_entries := nat_entries false; sig_wf := eq_refl |}.
-
-Lemma accepted_check_in : forall S sg fuel G t A,
-  snd (run_check S sg fuel G t A) = Accepted tt -> chk S sg G t A.
-Proof. intros S sg fuel G t A H. exact (proj2 (proj2 (run_check_sound S sg fuel G t A tt H))). Qed.
 
 (** [sig_add] checks only the new entry: adding [double] to the base gives
     the entries of [sg_nat], and an entry with a free variable is refused. *)
@@ -96,24 +93,24 @@ Example succ_type :
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem two_typed : chk predicative sg_nat [] (build [] (succ (succ zero))) (build [] Nat).
-Proof. apply (accepted_check_in _ _ const_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ const_fuel). vm_compute. reflexivity. Qed.
 
 Theorem elim_nat_typed : chk predicative sg_nat [] (build [] elim_nat) (build [] elim_nat_ty).
-Proof. apply (accepted_check_in _ _ const_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ const_fuel). vm_compute. reflexivity. Qed.
 
 (** The body of [double] checks in the signature without [double]... *)
 Theorem double_body_typed :
   chk predicative sg_nat_base [] (build [] double_body) (build [] (Nat ~> Nat)).
-Proof. apply (accepted_check_in _ _ const_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ const_fuel). vm_compute. reflexivity. Qed.
 
 (** ... where a body that mentions [double] itself is rejected. *)
 Example self_reference_rejected :
-  snd (run_check predicative sg_nat_base const_fuel [] (build [] (λ "n", double "n")) (build [] (Nat ~> Nat)))
+  checks predicative sg_nat_base const_fuel [] (λ "n", double "n") (Nat ~> Nat)
   = Rejected (EUnknownConst (Def "double")).
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem double_one_typed : chk predicative sg_nat [] (build [] (double (succ zero))) (build [] Nat).
-Proof. apply (accepted_check_in _ _ const_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ const_fuel). vm_compute. reflexivity. Qed.
 
 (** ** δ and ι *)
 
@@ -129,8 +126,11 @@ Example delta_step :
 Proof. vm_compute. reflexivity. Qed.
 
 (** The ι-rule on open terms: [P z s n] are free. *)
-Definition iota_ctx : list (string * nterm) :=
-  [("n", Nat); ("s", Π "n" : Nat, "P" "n" ~> "P" (succ "n")); ("z", "P" zero); ("P", Nat ~> Type@ 0)].
+(** The arguments of [elimNat[j]] and an object [n], free. *)
+Definition iota_ctx_at (j : nat) : list (string * nterm) :=
+  [("n", Nat); ("s", Π "n" : Nat, "P" "n" ~> "P" (succ "n")); ("z", NVar "P" zero); ("P", Nat ~> Type@ j)].
+
+Definition iota_ctx : list (string * nterm) := iota_ctx_at 0.
 
 Example iota_open :
   exists v, convert sg_nat const_fuel
@@ -153,7 +153,7 @@ Example open_spine :
          (App (build [] (elim_nat const_nat zero (λ "m", λ "r", "r"))) (Var 0)))
   = Accepted (App (build [] const_nat) (Var 0)) /\
   normalize sg_nat const_fuel (App (build [] (elim_nat const_nat zero (λ "m", λ "r", "r"))) (Var 0))
-  = NormalForm (App (App (App (App (Const (Elim "Nat" 0)) (Lam (Const (Ind "Nat"))))
+  = NormalForm (App (App (App (App (Const (Elim "Nat" (Univ 0))) (Lam (Const (Ind "Nat"))))
                                 (Const (Ctor "Nat" "zero")))
                            (Lam (Lam (Var 0))))
                       (Var 0)).
@@ -163,7 +163,7 @@ Proof. split; vm_compute; reflexivity. Qed.
     neutral. *)
 Example inactive_neutral :
   normalize sg_nat_inactive const_fuel (build [] (double (succ zero)))
-  = NormalForm (App (App (App (App (Const (Elim "Nat" 0)) (Lam (Const (Ind "Nat"))))
+  = NormalForm (App (App (App (App (Const (Elim "Nat" (Univ 0))) (Lam (Const (Ind "Nat"))))
                                 (Const (Ctor "Nat" "zero")))
                            (Lam (Lam (App (Const (Ctor "Nat" "succ"))
                                           (App (Const (Ctor "Nat" "succ")) (Var 0))))))
@@ -178,12 +178,12 @@ Example unknown_constant :
 Proof. vm_compute. reflexivity. Qed.
 
 Example not_in_empty_signature :
-  snd (run_infer predicative ∅ const_fuel [] (build [] zero))
+  infers predicative ∅ const_fuel [] zero
   = Rejected (EUnknownConst (Ctor "Nat" "zero")).
 Proof. vm_compute. reflexivity. Qed.
 
 Example constants_off_in_u_minus :
-  snd (run_infer system_u_minus sg_nat const_fuel [] (build [] zero))
+  infers system_u_minus sg_nat const_fuel [] zero
   = Rejected (ENoDecls (Const (Ctor "Nat" "zero"))).
 Proof. vm_compute. reflexivity. Qed.
 

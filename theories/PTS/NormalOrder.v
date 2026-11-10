@@ -18,16 +18,23 @@
       to its full arity, is an eliminator too: its last argument, the
       object, first, then the rest of the spine; other spines of
       constants are applications;
+    - so is a [fix] applied up to its structural argument: that
+      argument first, then the rest of the spine;
+    - in a [match], the scrutinee first, then, once it is neutral, the
+      motive and the branches from left to right;
     - in a projection, the pair;
     - in [Pi A B] and [Sigma A B], [A] before [B]; in [Pair a b], [a]
-      before [b]; under [Lam] the body.
+      before [b]; in [Fix A k b], [A] before [b]; under [Lam] the body.
 
     Normal forms [nf] and neutral terms [ne] are the terms without a redex
     in this sense.  A constant that is not a δ-redex heads a neutral
     spine, like a variable; this includes constructors, so a constructor
     applied to normal arguments is [ne], and a full spine of an
     eliminator is neutral when its object is neutral and no ι-rule
-    applies.  The observation of a closed program of type ℕ in the
+    applies.  A [fix] is a neutral head as well, once its type and body
+    are normal: it computes only when applied to a constructor in its
+    structural position, so a [fix] on a variable is neutral, and so is
+    a [match] on a neutral scrutinee with normal motive and branches.  The observation of a closed program of type ℕ in the
     PCF translation is an [nf] of the chosen numeral encoding reached by
     [nstep]; a weak-head normal form is not enough.
 
@@ -40,25 +47,32 @@
     (progress for normal order) is a separate obligation; it needs
     inversion of typing up to conversion, hence confluence. *)
 
-From Stdlib Require Import Relations.
+From Stdlib Require Import Relations List.
+Import ListNotations.
 From DepTypes.PTS Require Import Syntax Signature Reduction.
 
 Reserved Notation "t ⇝ₙ u" (at level 70, no associativity).
 Reserved Notation "t ⇝ₙ* u" (at level 70, no associativity).
 
-(** An ι-step needs a full spine of an eliminator: a hypothesis
-    [iota sg t = Some u] is absurd unless [t] is an application, and
-    there it contradicts [full_elim sg t = false]. *)
+(** An ι-step of a spine needs a full spine of an eliminator or a fix:
+    a hypothesis [spine_iota sg t = Some u] is absurd unless [t] is an
+    application, and there it contradicts [full_spine sg t = false]; ι of
+    a match needs a match. *)
 Ltac no_iota :=
   match goal with
-  | H : iota _ (App (Lam _) _) = Some _ |- _ => rewrite iota_lam in H; discriminate H
-  | H : full_elim _ (App (Lam _) _) = true |- _ =>
-      unfold full_elim in H; rewrite elim_view_lam in H; discriminate H
-  | H : iota _ _ = Some _ |- _ =>
+  | H1 : spine_iota _ ?t = Some _, H2 : case_iota _ ?t = Some _ |- _ =>
+      let E := fresh "E" in
+      destruct (spine_iota_app _ _ _ H1) as (? & ? & E); subst t; cbn in H2; discriminate H2
+  | H : spine_iota _ (App (Lam _) _) = Some _ |- _ => rewrite spine_iota_lam in H; discriminate H
+  | H : full_spine _ (App (Lam _) _) = true |- _ => rewrite full_spine_lam in H; discriminate H
+  | H : spine_iota _ _ = Some _ |- _ =>
       first
         [ let f := fresh "f" in let a := fresh "a" in let E := fresh "E" in
-          destruct (iota_app _ _ _ H) as (f & a & E); discriminate E
-        | let Hf := fresh "Hf" in pose proof (iota_full_elim _ _ _ H) as Hf; congruence ]
+          destruct (spine_iota_app _ _ _ H) as (f & a & E); discriminate E
+        | let Hf := fresh "Hf" in pose proof (spine_iota_full _ _ _ H) as Hf; congruence ]
+  | H : case_iota _ _ = Some _ |- _ =>
+      let E := fresh "E" in
+      destruct (case_iota_case _ _ _ H) as (? & ? & ? & ? & ? & E); discriminate E
   end.
 
 Section NormalOrder.
@@ -84,19 +98,28 @@ Inductive nf : term -> Prop :=
 
 with ne : term -> Prop :=
 | NE_Var : forall n, ne (Var n)
-| NE_App : forall n v, full_elim sg (App n v) = false -> ne n -> nf v -> ne (App n v)
-| NE_Elim : forall n v, full_elim sg (App n v) = true -> iota sg (App n v) = None ->
+| NE_App : forall n v, full_spine sg (App n v) = false -> ne n -> nf v -> ne (App n v)
+| NE_Spine : forall n v, full_spine sg (App n v) = true -> spine_iota sg (App n v) = None ->
     ne n -> ne v -> ne (App n v)
 | NE_ElimVoid : forall C n, nf C -> ne n -> ne (ElimVoid C n)
 | NE_ElimUnit : forall C c n, nf C -> nf c -> ne n -> ne (ElimUnit C c n)
 | NE_ElimBool : forall C t f n, nf C -> nf t -> nf f -> ne n -> ne (ElimBool C t f n)
 | NE_Fst : forall n, ne n -> ne (Fst n)
 | NE_Snd : forall n, ne n -> ne (Snd n)
-| NE_Const : forall g, sig_delta sg g = None -> ne (Const g).
+| NE_Const : forall g, sig_delta sg g = None -> ne (Const g)
+| NE_Case : forall D s P x bs, case_iota sg (Case D s P x bs) = None ->
+    ne x -> nf P -> nfs bs -> ne (Case D s P x bs)
+| NE_Fix : forall A k b, nf A -> nf b -> ne (Fix A k b)
+
+(** normal branches *)
+with nfs : list term -> Prop :=
+| NFS_Nil : nfs []
+| NFS_Cons : forall b bs, nf b -> nfs bs -> nfs (b :: bs).
 
 Scheme nf_mut := Induction for nf Sort Prop
-  with ne_mut := Induction for ne Sort Prop.
-Combined Scheme nf_ne_mut from nf_mut, ne_mut.
+  with ne_mut := Induction for ne Sort Prop
+  with nfs_mut := Induction for nfs Sort Prop.
+Combined Scheme nf_ne_mut from nf_mut, ne_mut, nfs_mut.
 
 Definition is_lam (t : term) : bool :=
   match t with
@@ -122,14 +145,15 @@ Inductive nstep : term -> term -> Prop :=
 | N_FstPair : forall a b, Fst (Pair a b) ⇝ₙ a
 | N_SndPair : forall a b, Snd (Pair a b) ⇝ₙ b
 (** application: the function, then the argument *)
-| N_AppFun : forall f f' a, full_elim sg (App f a) = false -> is_lam f = false -> f ⇝ₙ f' ->
+| N_AppFun : forall f f' a, full_spine sg (App f a) = false -> is_lam f = false -> f ⇝ₙ f' ->
     App f a ⇝ₙ App f' a
-| N_AppArg : forall f a a', full_elim sg (App f a) = false -> ne f -> a ⇝ₙ a' ->
+| N_AppArg : forall f a a', full_spine sg (App f a) = false -> ne f -> a ⇝ₙ a' ->
     App f a ⇝ₙ App f a'
-(** a full spine of an eliminator instance: the object, then the rest *)
-| N_ElimObj : forall f a a', full_elim sg (App f a) = true -> iota sg (App f a) = None ->
+(** a full spine of an eliminator instance or a fix: the object, then
+    the rest *)
+| N_SpineObj : forall f a a', full_spine sg (App f a) = true -> spine_iota sg (App f a) = None ->
     a ⇝ₙ a' -> App f a ⇝ₙ App f a'
-| N_ElimRest : forall f f' a, full_elim sg (App f a) = true -> iota sg (App f a) = None ->
+| N_SpineRest : forall f f' a, full_spine sg (App f a) = true -> spine_iota sg (App f a) = None ->
     ne a -> f ⇝ₙ f' -> App f a ⇝ₙ App f' a
 (** binders *)
 | N_PiDom : forall A A' B, A ⇝ₙ A' -> Pi A B ⇝ₙ Pi A' B
@@ -156,9 +180,22 @@ Inductive nstep : term -> term -> Prop :=
     ElimBool C t f b ⇝ₙ ElimBool C t' f b
 | N_ElimBoolFalse : forall C t f f' b, ne b -> nf C -> nf t -> f ⇝ₙ f' ->
     ElimBool C t f b ⇝ₙ ElimBool C t f' b
-(** the contractions of the signature at the root, last *)
+(** match: the scrutinee, then the motive and the branches *)
+| N_CaseScr : forall D s P x x' bs, case_iota sg (Case D s P x bs) = None -> x ⇝ₙ x' ->
+    Case D s P x bs ⇝ₙ Case D s P x' bs
+| N_CaseMot : forall D s P P' x bs, case_iota sg (Case D s P x bs) = None -> ne x -> P ⇝ₙ P' ->
+    Case D s P x bs ⇝ₙ Case D s P' x bs
+| N_CaseBr : forall D s P x bs1 b b' bs2, case_iota sg (Case D s P x (bs1 ++ b :: bs2)) = None ->
+    ne x -> nf P -> nfs bs1 -> b ⇝ₙ b' ->
+    Case D s P x (bs1 ++ b :: bs2) ⇝ₙ Case D s P x (bs1 ++ b' :: bs2)
+(** fix: the type, then the body *)
+| N_FixType : forall A A' k b, A ⇝ₙ A' -> Fix A k b ⇝ₙ Fix A' k b
+| N_FixBody : forall A k b b', nf A -> b ⇝ₙ b' -> Fix A k b ⇝ₙ Fix A k b'
+(** the contractions of the signature, of fix and of match at the
+    root, last *)
 | N_Delta : forall g b, sig_delta sg g = Some b -> Const g ⇝ₙ b
-| N_Iota : forall t u, iota sg t = Some u -> t ⇝ₙ u
+| N_Iota : forall t u, spine_iota sg t = Some u -> t ⇝ₙ u
+| N_Case : forall t u, case_iota sg t = Some u -> t ⇝ₙ u
 where "t ⇝ₙ u" := (nstep t u).
 
 Local Notation "t ⇝ₙ* u" := (clos_refl_trans term nstep t u).
@@ -166,7 +203,9 @@ Local Notation "t ⇝ₙ* u" := (clos_refl_trans term nstep t u).
 (** ** Normal order is a reduction strategy *)
 
 Lemma nstep_red1 : forall t u, t ⇝ₙ u -> t ⇝ u.
-Proof. intros t u H. induction H; constructor; assumption. Qed.
+Proof.
+  intros t u H. induction H; constructor; assumption.
+Qed.
 
 Lemma nsteps_red : forall t u, t ⇝ₙ* u -> t ⇝* u.
 Proof.
@@ -176,9 +215,19 @@ Qed.
 
 Lemma nf_ne_no_nstep :
   (forall t, nf t -> forall u, ~ t ⇝ₙ u) /\
-  (forall t, ne t -> forall u, ~ t ⇝ₙ u).
+  (forall t, ne t -> forall u, ~ t ⇝ₙ u) /\
+  (forall bs, nfs bs -> forall b, In b bs -> forall u, ~ b ⇝ₙ u).
 Proof.
   apply nf_ne_mut; repeat intro;
+    try match goal with
+    | H : In _ [] |- _ => destruct H
+    | H : In _ (_ :: _) |- _ =>
+        let Hi := fresh "Hi" in destruct H as [<- | Hi];
+        match goal with
+        | IH : forall u, ~ ?x ⇝ₙ u, S : ?x ⇝ₙ _ |- _ => exact (IH _ S)
+        | IH : forall b, In b _ -> _, Hin : In _ _, S : _ ⇝ₙ _ |- _ => exact (IH _ Hin _ S)
+        end
+    end;
     match goal with Hs : _ ⇝ₙ _ |- False => inversion Hs; subst end;
     try congruence; try no_iota;
     repeat match goal with
@@ -190,6 +239,8 @@ Proof.
     end;
     match goal with
     | IH : forall u, ~ ?x ⇝ₙ u, H : ?x ⇝ₙ _ |- _ => exact (IH _ H)
+    | IH : forall b, In b (?l1 ++ ?x :: ?l2) -> forall u, ~ b ⇝ₙ u, H : ?x ⇝ₙ _ |- _ =>
+        eapply IH; [apply in_or_app; right; left; reflexivity | exact H]
     end.
 Qed.
 
@@ -204,13 +255,51 @@ Lemma nf_no_nstep : forall t u, nf t -> ~ t ⇝ₙ u.
 Proof. intros t u H. now apply (proj1 nf_ne_no_nstep). Qed.
 
 Lemma ne_no_nstep : forall t u, ne t -> ~ t ⇝ₙ u.
-Proof. intros t u H. now apply (proj2 nf_ne_no_nstep). Qed.
+Proof. intros t u H. now apply (proj1 (proj2 nf_ne_no_nstep)). Qed.
+
+(** ** Normal branches *)
+
+Lemma nfs_app : forall l1 l2, nfs l1 -> nfs l2 -> nfs (l1 ++ l2).
+Proof. induction l1; intros l2 H1 H2; [exact H2 | inversion H1; subst; constructor; auto]. Qed.
+
+Lemma nfs_app_inv : forall l1 b l2, nfs (l1 ++ b :: l2) -> nf b.
+Proof.
+  induction l1 as [|c l1 IH]; intros b l2 H; inversion H; subst; [assumption | exact (IH _ _ ltac:(eassumption))].
+Qed.
+
+(** The branch of a match that steps after normal ones is the first one
+    that is not normal. *)
+Lemma branch_first : forall bs1 b bs2 bs1' b' bs2' u,
+  nfs bs1 -> nfs bs1' -> b ⇝ₙ u -> ~ nf b' ->
+  bs1 ++ b :: bs2 = bs1' ++ b' :: bs2' -> bs1 = bs1' /\ b = b' /\ bs2 = bs2'.
+Proof.
+  induction bs1 as [|c bs1 IH]; intros b bs2 bs1' b' bs2' u N N' S S' E;
+    destruct bs1' as [|c' bs1']; cbn in E.
+  - injection E as -> ->. auto.
+  - injection E as -> _. inversion N'; subst. destruct (nf_no_nstep _ _ ltac:(eassumption) S).
+  - injection E as <- _. inversion N; subst. contradiction.
+  - injection E as -> E. inversion N; inversion N'; subst.
+    destruct (IH _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) S S' E) as (-> & -> & ->). auto.
+Qed.
+
+Lemma branch_split : forall bs1 b bs2 bs1' b' bs2' u u',
+  nfs bs1 -> nfs bs1' -> b ⇝ₙ u -> b' ⇝ₙ u' ->
+  bs1 ++ b :: bs2 = bs1' ++ b' :: bs2' -> bs1 = bs1' /\ b = b' /\ bs2 = bs2'.
+Proof.
+  intros bs1 b bs2 bs1' b' bs2' u u' N N' S S'.
+  apply (branch_first _ _ _ _ _ _ u N N' S). intros Hn. exact (nf_no_nstep _ _ Hn S').
+Qed.
 
 Lemma nstep_det : forall t u v, t ⇝ₙ u -> t ⇝ₙ v -> u = v.
 Proof.
   intros t u v H. revert v.
   induction H; intros v Hv; inversion Hv; subst;
     try congruence; try no_iota;
+    try match goal with
+    | E : ?l1 ++ ?x1 :: ?r1 = ?l2 ++ ?x2 :: ?r2, N1 : nfs ?l1, N2 : nfs ?l2,
+      S1 : ?x1 ⇝ₙ _, S2 : ?x2 ⇝ₙ _ |- _ =>
+        destruct (branch_split _ _ _ _ _ _ _ _ N1 N2 S1 S2 E) as (? & ? & ?); subst
+    end;
     repeat match goal with
     | H : is_lam (Lam _) = false |- _ => discriminate H
     | H : is_pair (Pair _ _) = false |- _ => discriminate H
@@ -226,6 +315,10 @@ Proof.
         end
     end;
     try reflexivity;
+    try match goal with
+    | IH : forall v, ?x ⇝ₙ v -> ?y = v, S : ?x ⇝ₙ ?z |- context [?y] =>
+        rewrite <- (IH _ S); reflexivity
+    end;
     try (f_equal; eauto).
 Qed.
 End NormalOrder.
@@ -238,4 +331,8 @@ Arguments nf_ne_no_nstep {sg}.
 Arguments nf_not_stuck {sg}.
 Arguments nf_no_nstep {sg}.
 Arguments ne_no_nstep {sg}.
+Arguments nfs_app {sg}.
+Arguments nfs_app_inv {sg}.
+Arguments branch_first {sg}.
+Arguments branch_split {sg}.
 Arguments nstep_det {sg}.

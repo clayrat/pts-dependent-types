@@ -9,9 +9,10 @@
     the head of a β-redex, needs an annotation [Ann t A].
 
     Sorts cover both families of configurations: the named sorts ∗, □, △
-    of λ∗, U and U⁻, and the predicative hierarchy [Univ i] = Type_i.
-    Which of them exist, and how they are related, is decided by a PTS
-    specification (PTS.Spec), not by the syntax.
+    of λ∗, U, U⁻ and λC, and the predicative hierarchy [Univ i] = Type_i
+    with the impredicative sort [Prp] of propositions beside it ([Prop] is
+    a keyword of Rocq).  Which of them exist, and how they are related, is
+    decided by a PTS specification (PTS.Spec), not by the syntax.
 
     The primitives Void, Unit and Bool of the minimal MLTT are part of the
     syntax from the start; a specification enables them or not.  Their
@@ -25,9 +26,22 @@
     [Fst p], [Snd p] are the projections.
 
     A constant [Const g] names an entry of a signature (PTS.Signature):
-    an inductive type, a constructor, an eliminator instance at a fixed
-    level, or a δ-constant.  Constants take their arguments as ordinary
+    an inductive type, a constructor, an eliminator instance for motives
+    into a fixed sort, or a δ-constant.  Constants take their arguments as ordinary
     [App] spines.
+
+    [match] and [fix] are primitive, as in Rocq:
+    - [Case D s P x bs] is [match x as y in D Δ θ̄ return P θ̄ y with … end]:
+      the motive [P] is a λ over the indices θ̄ and the scrutinee, into
+      the sort [s]; [bs] holds one branch per constructor of D, in the
+      order of their declaration, each a λ over the fields.  The
+      parameters Δ are not stored: they are read off the type of [x].
+      No former binds at the root of a [Case]: the motive and the
+      branches bind their own variables;
+    - [Fix A k b] is [fix f : A {struct k} := b]: [A] the type of the
+      function, [k] the position of its structural argument, counted
+      from 0, and [b] the body, where [f] is [Var 0].  The body starts
+      with at least [k + 1] λ, up to the structural argument.
 
     Renaming and substitution are parallel ([nat -> nat], [nat -> term]);
     [subst1 b u] is [b[u/0]], decrementing the other free variables of
@@ -43,7 +57,8 @@ Inductive sort : Type :=
 | Star : sort            (** ∗ *)
 | Box : sort             (** □ *)
 | Tri : sort             (** △ *)
-| Univ : nat -> sort.    (** Type_i *)
+| Univ : nat -> sort     (** Type_i *)
+| Prp : sort.            (** Prop *)
 
 Definition sort_eq_dec (s s' : sort) : {s = s'} + {s <> s'}.
 Proof. decide equality; apply Nat.eq_dec. Defined.
@@ -60,18 +75,19 @@ Qed.
 (** ** Global constants
 
     [Ind D] is an inductive type, [Ctor D c] its constructor named [c],
-    [Elim D j] the instance of its eliminator for motives into [Type_j],
-    and [Def f] a δ-constant.  The level is part of the name: an instance
-    has one closed type, there is no universe polymorphism. *)
+    [Elim D s] the instance of its eliminator for motives into the sort
+    [s], [Type_j] or [Prop], and [Def f] a δ-constant.  The sort is part
+    of the name: an instance has one closed type, there is no universe
+    polymorphism. *)
 
 Inductive gref : Type :=
 | Ind : String.string -> gref
 | Ctor : String.string -> String.string -> gref
-| Elim : String.string -> nat -> gref
+| Elim : String.string -> sort -> gref
 | Def : String.string -> gref.
 
 Definition gref_eq_dec (g g' : gref) : {g = g'} + {g <> g'}.
-Proof. decide equality; first [apply String.string_dec | apply Nat.eq_dec]. Defined.
+Proof. decide equality; first [apply String.string_dec | apply sort_eq_dec]. Defined.
 
 Definition gref_eqb (g g' : gref) : bool :=
   if gref_eq_dec g g' then true else false.
@@ -101,10 +117,18 @@ Inductive term : Type :=
 | Fst : term -> term
 | Snd : term -> term
 (** constants of a signature *)
-| Const : gref -> term.
+| Const : gref -> term
+(** match and structural recursion *)
+| Case : String.string -> sort -> term -> term -> list term -> term
+| Fix : term -> nat -> term -> term.
 
-Definition term_eq_dec (t u : term) : {t = u} + {t <> u}.
-Proof. decide equality; first [apply sort_eq_dec | apply Nat.eq_dec | apply gref_eq_dec]. Defined.
+Definition term_eq_dec : forall (t u : term), {t = u} + {t <> u}.
+Proof.
+  fix IH 1. intros t u.
+  decide equality;
+    first [ apply sort_eq_dec | apply Nat.eq_dec | apply gref_eq_dec | apply String.string_dec
+          | apply (list_eq_dec IH) ].
+Defined.
 
 Definition term_eqb (t u : term) : bool :=
   if term_eq_dec t u then true else false.
@@ -114,6 +138,72 @@ Proof.
   intros t u. unfold term_eqb.
   destruct (term_eq_dec t u); split; congruence.
 Qed.
+
+(** ** Induction with the branches of a match
+
+    The induction principle Rocq generates for [term] gives no hypothesis
+    for the branches, which lie in a list.  [term_ind'] is the same
+    principle with [Forall P bs] for them; proofs that look into branches
+    use [induction t using term_ind']. *)
+
+Section TermInd.
+  Variable P : term -> Prop.
+  Hypothesis HSrt : forall s, P (Srt s).
+  Hypothesis HVar : forall n, P (Var n).
+  Hypothesis HPi : forall t1, P t1 -> forall t2, P t2 -> P (Pi t1 t2).
+  Hypothesis HLam : forall t, P t -> P (Lam t).
+  Hypothesis HApp : forall t1, P t1 -> forall t2, P t2 -> P (App t1 t2).
+  Hypothesis HAnn : forall t1, P t1 -> forall t2, P t2 -> P (Ann t1 t2).
+  Hypothesis HVoid : P Void.
+  Hypothesis HElimVoid : forall t1, P t1 -> forall t2, P t2 -> P (ElimVoid t1 t2).
+  Hypothesis HUnit : P Unit.
+  Hypothesis HTt : P Tt.
+  Hypothesis HElimUnit : forall t1, P t1 -> forall t2, P t2 -> forall t3, P t3 -> P (ElimUnit t1 t2 t3).
+  Hypothesis HBool : P Bool.
+  Hypothesis HTrue : P BTrue.
+  Hypothesis HFalse : P BFalse.
+  Hypothesis HElimBool : forall t1, P t1 -> forall t2, P t2 -> forall t3, P t3 -> forall t4, P t4 ->
+    P (ElimBool t1 t2 t3 t4).
+  Hypothesis HSigma : forall t1, P t1 -> forall t2, P t2 -> P (Sigma t1 t2).
+  Hypothesis HPair : forall t1, P t1 -> forall t2, P t2 -> P (Pair t1 t2).
+  Hypothesis HFst : forall t, P t -> P (Fst t).
+  Hypothesis HSnd : forall t, P t -> P (Snd t).
+  Hypothesis HConst : forall g, P (Const g).
+  Hypothesis HCase : forall D s t1, P t1 -> forall t2, P t2 -> forall l (IHl : Forall P l), P (Case D s t1 t2 l).
+  Hypothesis HFix : forall t1, P t1 -> forall n t2, P t2 -> P (Fix t1 n t2).
+
+  Fixpoint term_ind' (t : term) : P t :=
+    match t with
+    | Srt s => HSrt s
+    | Var n => HVar n
+    | Pi A B => HPi A (term_ind' A) B (term_ind' B)
+    | Lam b => HLam b (term_ind' b)
+    | App f a => HApp f (term_ind' f) a (term_ind' a)
+    | Ann u A => HAnn u (term_ind' u) A (term_ind' A)
+    | Void => HVoid
+    | ElimVoid C e => HElimVoid C (term_ind' C) e (term_ind' e)
+    | Unit => HUnit
+    | Tt => HTt
+    | ElimUnit C c u => HElimUnit C (term_ind' C) c (term_ind' c) u (term_ind' u)
+    | Bool => HBool
+    | BTrue => HTrue
+    | BFalse => HFalse
+    | ElimBool C bt bf b => HElimBool C (term_ind' C) bt (term_ind' bt) bf (term_ind' bf) b (term_ind' b)
+    | Sigma A B => HSigma A (term_ind' A) B (term_ind' B)
+    | Pair a b => HPair a (term_ind' a) b (term_ind' b)
+    | Fst p => HFst p (term_ind' p)
+    | Snd p => HSnd p (term_ind' p)
+    | Const g => HConst g
+    | Case D s M x bs =>
+        HCase D s M (term_ind' M) x (term_ind' x) bs
+          ((fix all (bs : list term) : Forall P bs :=
+              match bs with
+              | [] => Forall_nil P
+              | b :: bs' => Forall_cons b (term_ind' b) (all bs')
+              end) bs)
+    | Fix A k b => HFix A (term_ind' A) k b (term_ind' b)
+    end.
+End TermInd.
 
 Implicit Types
   (n m : nat)
@@ -149,6 +239,8 @@ Fixpoint rename r t : term :=
   | Fst p => Fst (rename r p)
   | Snd p => Snd (rename r p)
   | Const g => Const g
+  | Case D s P x bs => Case D s (rename r P) (rename r x) (map (rename r) bs)
+  | Fix A k b => Fix (rename r A) k (rename (up_ren r) b)
   end.
 
 (** [lift k t] moves [t] under [k] new binders. *)
@@ -164,7 +256,9 @@ Definition times A B : term := Sigma A (lift 1 B).
 (** ** Spines and telescopes
 
     [apps h [a₁; …; aₙ]] is [h a₁ … aₙ]; [spine_head] and [spine_args]
-    take a spine apart again.  [pis] and [lams] bind a telescope, outermost entry
+    take a spine apart again, [spine_args] in one pass with an
+    accumulator; [spine_args_App] is its equation on an application.
+    [pis] and [lams] bind a telescope, outermost entry
     first; [vars base n] are the variables of a telescope of [n] entries
     lying [base] binders up, outermost first:
     [Var (base + n - 1), …, Var base]. *)
@@ -177,11 +271,29 @@ Fixpoint spine_head t : term :=
   | _ => t
   end.
 
-Fixpoint spine_args t : list term :=
+Fixpoint spine_args_acc t (acc : list term) : list term :=
   match t with
-  | App f a => spine_args f ++ [a]
-  | _ => []
+  | App f a => spine_args_acc f (a :: acc)
+  | _ => acc
   end.
+
+Definition spine_args t : list term := spine_args_acc t [].
+
+Lemma spine_args_acc_app : forall t acc, spine_args_acc t acc = spine_args t ++ acc.
+Proof.
+  induction t; intros acc; try reflexivity.
+  unfold spine_args. cbn [spine_args_acc]. rewrite !IHt1, <- app_assoc. reflexivity.
+Qed.
+
+(* TODO(elim-inductive-types): remove this comment once elim-inductive-types
+   builds against this kernel.  Its theories/Elim/Decl.v keeps a copy of
+   [apps_spine] whose proof unfolds [spine_args] by [cbn].  Since
+   [spine_args] uses an accumulator, that unfolding no longer gives
+   [spine_args f ++ [a]], and the proof breaks.  Fix there: use
+   [apps_spine] of this module instead of the copy, or rewrite with
+   [spine_args_App]. *)
+Lemma spine_args_App : forall f a, spine_args (App f a) = spine_args f ++ [a].
+Proof. intros f a. unfold spine_args at 1. cbn [spine_args_acc]. apply spine_args_acc_app. Qed.
 
 Fixpoint pis (As : list term) (B : term) : term :=
   match As with
@@ -229,6 +341,8 @@ Fixpoint subst (sb : nat -> term) t : term :=
   | Fst p => Fst (subst sb p)
   | Snd p => Snd (subst sb p)
   | Const g => Const g
+  | Case D s P x bs => Case D s (subst sb P) (subst sb x) (map (subst sb) bs)
+  | Fix A k b => Fix (subst sb A) k (subst (up_sub sb) b)
   end.
 
 Definition scons (u : term) (sb : nat -> term) : nat -> term :=
@@ -243,13 +357,14 @@ Fixpoint free_in (i : nat) t : bool :=
   match t with
   | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ => false
   | Var n => Nat.eqb n i
-  | Pi A B | Sigma A B => free_in i A || free_in (S i) B
+  | Pi A B | Sigma A B | Fix A _ B => free_in i A || free_in (S i) B
   | Lam b => free_in (S i) b
   | Fst p | Snd p => free_in i p
   | App f a | Ann f a | ElimVoid f a | Pair f a => free_in i f || free_in i a
   | ElimUnit C c u => free_in i C || free_in i c || free_in i u
   | ElimBool C t f b =>
       free_in i C || free_in i t || free_in i f || free_in i b
+  | Case _ _ P x bs => free_in i P || free_in i x || existsb (free_in i) bs
   end.
 
 (** [closed_above k t]: every free index of [t] is below [k]. *)
@@ -257,16 +372,32 @@ Fixpoint closed_above (k : nat) t : bool :=
   match t with
   | Srt _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ => true
   | Var n => Nat.ltb n k
-  | Pi A B | Sigma A B => closed_above k A && closed_above (S k) B
+  | Pi A B | Sigma A B | Fix A _ B => closed_above k A && closed_above (S k) B
   | Lam b => closed_above (S k) b
   | Fst p | Snd p => closed_above k p
   | App f a | Ann f a | ElimVoid f a | Pair f a => closed_above k f && closed_above k a
   | ElimUnit C c u => closed_above k C && closed_above k c && closed_above k u
   | ElimBool C t f b =>
       closed_above k C && closed_above k t && closed_above k f && closed_above k b
+  | Case _ _ P x bs => closed_above k P && closed_above k x && forallb (closed_above k) bs
   end.
 
 Definition closed t : bool := closed_above 0 t.
+
+(** [has_def t]: [t] mentions a δ-constant. *)
+Fixpoint has_def t : bool :=
+  match t with
+  | Const (Def _) => true
+  | Srt _ | Var _ | Void | Unit | Tt | Bool | BTrue | BFalse | Const _ => false
+  | Pi A B | Sigma A B | Fix A _ B | App A B | Ann A B | ElimVoid A B | Pair A B => has_def A || has_def B
+  | Lam b | Fst b | Snd b => has_def b
+  | ElimUnit C c u => has_def C || has_def c || has_def u
+  | ElimBool C t f b => has_def C || has_def t || has_def f || has_def b
+  | Case _ _ P x bs => has_def P || has_def x || existsb has_def bs
+  end.
+
+(** [def_head t]: the head of the spine of [t] is a δ-constant. *)
+Definition def_head t : bool := match spine_head t with Const (Def _) => true | _ => false end.
 
 (** ** Renaming of sorts
 
@@ -297,6 +428,8 @@ Fixpoint map_sorts (g : sort -> sort) t : term :=
   | Fst p => Fst (map_sorts g p)
   | Snd p => Snd (map_sorts g p)
   | Const c => Const c
+  | Case D s P x bs => Case D (g s) (map_sorts g P) (map_sorts g x) (map (map_sorts g) bs)
+  | Fix A k b => Fix (map_sorts g A) k (map_sorts g b)
   end.
 
 (** ** Contexts
@@ -312,10 +445,32 @@ Definition lookup (G : ctx) n : option term :=
 
 (** ** Closed terms are unaffected by renaming and substitution *)
 
+(** The branches of a match.  A goal over the list [l] of the branches
+    — an equality of maps over [l], or a [forallb] over [l] or over a map
+    of it — is reduced to a branch [b] of [l] and given to the hypothesis
+    [Forall P l] of [term_ind']; a premise of it that a [forallb] over
+    [l] gives is discharged, the others are left. *)
+Ltac on_branches :=
+  lazymatch goal with
+  | IHl : Forall _ ?l |- _ =>
+      rewrite Forall_forall in IHl;
+      let b := fresh "b" in let Hb := fresh "Hb" in
+      lazymatch goal with
+      | |- map _ l = l => rewrite <- (map_id l) at 2; apply map_ext_in; intros b Hb
+      | |- map _ _ = map _ _ => rewrite ?map_map; apply map_ext_in; intros b Hb
+      | |- forallb _ (map _ l) = true =>
+          apply forallb_forall; let x := fresh "x" in let Hx := fresh "Hx" in
+          intros x Hx; apply in_map_iff in Hx as (b & <- & Hb)
+      | |- forallb _ l = true => apply forallb_forall; intros b Hb
+      end;
+      eapply IHl; [exact Hb | ..];
+      try match goal with Hl : forallb _ l = true |- _ => exact (proj1 (forallb_forall _ _) Hl b Hb) end
+  end.
+
 Lemma rename_closed_above : forall t k r,
   closed_above k t = true -> (forall i, i < k -> r i = i) -> rename r t = t.
 Proof.
-  induction t; intros k r Hc Hr; cbn in *;
+  induction t using term_ind'; intros k r Hc Hr; cbn in *;
     repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
     try reflexivity.
   all: try (f_equal; apply Hr; apply Nat.ltb_lt; assumption).
@@ -323,6 +478,7 @@ Proof.
     first [ eapply IHt1; eassumption | eapply IHt2; eassumption | eapply IHt3; eassumption
           | eapply IHt4; eassumption | eapply IHt; eassumption
           | idtac ].
+  all: try (on_branches; assumption).
   all: match goal with
        | IH : forall k r, closed_above k ?b = true -> _ -> rename r ?b = ?b,
          H : closed_above (S ?k) ?b = true |- rename (up_ren ?r) ?b = ?b =>
@@ -333,7 +489,7 @@ Qed.
 Lemma subst_closed_above : forall t k sb,
   closed_above k t = true -> (forall i, i < k -> sb i = Var i) -> subst sb t = t.
 Proof.
-  induction t; intros k sb Hc Hs; cbn in *;
+  induction t using term_ind'; intros k sb Hc Hs; cbn in *;
     repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
     try reflexivity.
   all: try (apply Hs; apply Nat.ltb_lt; assumption).
@@ -341,6 +497,7 @@ Proof.
     first [ eapply IHt1; eassumption | eapply IHt2; eassumption | eapply IHt3; eassumption
           | eapply IHt4; eassumption | eapply IHt; eassumption
           | idtac ].
+  all: try (on_branches; assumption).
   all: match goal with
        | IH : forall k sb, closed_above k ?b = true -> _ -> subst sb ?b = ?b,
          H : closed_above (S ?k) ?b = true |- subst (up_sub ?s) ?b = ?b =>
@@ -360,10 +517,11 @@ Proof. intros t u H. apply subst_closed, H. Qed.
 
 Lemma closed_above_mono : forall t k k', closed_above k t = true -> k <= k' -> closed_above k' t = true.
 Proof.
-  induction t; intros k k' H Hk; cbn in *;
+  induction t using term_ind'; intros k k' H Hk; cbn in *;
     repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
     repeat (apply andb_true_intro; split); try reflexivity.
   all: try (apply Nat.ltb_lt; apply Nat.ltb_lt in H; lia).
+  all: try (on_branches; lia).
   all: first [ eapply IHt1 | eapply IHt2 | eapply IHt3 | eapply IHt4 | eapply IHt ];
        first [ eassumption | lia ].
 Qed.
@@ -377,10 +535,11 @@ Qed.
 Lemma closed_above_rename : forall t k k' r,
   closed_above k t = true -> (forall i, i < k -> r i < k') -> closed_above k' (rename r t) = true.
 Proof.
-  induction t; intros k k' r H Hr; cbn in *;
+  induction t using term_ind'; intros k k' r H Hr; cbn in *;
     repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
     repeat (apply andb_true_intro; split); try reflexivity.
   all: try (apply Nat.ltb_lt, Hr, Nat.ltb_lt; assumption).
+  all: try (on_branches; assumption).
   all: first [ eapply IHt1 | eapply IHt2 | eapply IHt3 | eapply IHt4 | eapply IHt ];
        try eassumption.
   all: intros [|i] Hi; cbn; [lia | ]. all: specialize (Hr i ltac:(lia)); lia.
@@ -388,3 +547,65 @@ Qed.
 
 Lemma closed_above_lift1 : forall t k, closed_above k t = true -> closed_above (S k) (lift 1 t) = true.
 Proof. intros t k H. apply (closed_above_rename t k); [exact H | intros; cbn; lia]. Qed.
+
+(** ** Spines and the λ of a fix *)
+
+Lemma apps_spine : forall t, apps (spine_head t) (spine_args t) = t.
+Proof.
+  induction t; try reflexivity.
+  rewrite spine_args_App. cbn [spine_head]. unfold apps in *. rewrite fold_left_app. cbn. now rewrite IHt1.
+Qed.
+
+Lemma spine_args_apps : forall us h, spine_args (apps h us) = spine_args h ++ us.
+Proof.
+  induction us as [|u us IH]; intros h; [cbn [apps fold_left]; now rewrite app_nil_r | ].
+  change (apps h (u :: us)) with (apps (App h u) us). rewrite IH, spine_args_App. now rewrite <- app_assoc.
+Qed.
+
+Lemma spine_head_apps : forall us h, spine_head (apps h us) = spine_head h.
+Proof. induction us as [|u us IH]; intros h; [reflexivity | cbn; unfold apps in IH; now rewrite IH]. Qed.
+
+(** [rev'] reverses a list in one pass; [rev] appends at every element.
+    Code that runs uses the first, proofs reason with the second. *)
+Lemma rev'_rev : forall {X : Type} (l : list X), rev' l = rev l.
+Proof. intros X l. symmetry. apply rev_alt. Qed.
+
+Lemma apps_snoc : forall h us u, apps h (us ++ [u]) = App (apps h us) u.
+Proof. intros h us u. unfold apps. rewrite fold_left_app. reflexivity. Qed.
+
+Lemma spine_head_idem : forall t, spine_head (spine_head t) = spine_head t.
+Proof. induction t; try reflexivity. exact IHt1. Qed.
+
+Lemma spine_head_not_app : forall t f a, spine_head t <> App f a.
+Proof. induction t; intros f a; try discriminate. exact (IHt1 f a). Qed.
+
+(** A head is not an application: it has no arguments. *)
+Lemma spine_head_args : forall h, spine_head h = h -> spine_args h = [].
+Proof.
+  intros h H. destruct h; try reflexivity.
+  exfalso. exact (spine_head_not_app h1 h1 h2 H).
+Qed.
+
+(** The head and the arguments of a spine in one pass, the last argument
+    first: what an evaluator that walks a spine from its root and adds
+    the arguments it evaluates in front needs, without reversing a
+    list. *)
+Fixpoint spine_rev t : term * list term :=
+  match t with
+  | App f a => let (h, vs) := spine_rev f in (h, a :: vs)
+  | _ => (t, [])
+  end.
+
+Lemma spine_rev_spec : forall t, spine_rev t = (spine_head t, rev (spine_args t)).
+Proof.
+  induction t; try reflexivity.
+  rewrite spine_args_App. cbn [spine_rev spine_head]. rewrite IHt1, rev_app_distr. reflexivity.
+Qed.
+
+(** [b] starts with at least [n] λ. *)
+Fixpoint has_lams (n : nat) (b : term) : bool :=
+  match n, b with
+  | 0, _ => true
+  | S n', Lam b' => has_lams n' b'
+  | S _, _ => false
+  end.

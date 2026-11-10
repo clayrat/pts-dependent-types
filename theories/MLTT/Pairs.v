@@ -17,10 +17,8 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound EmptySig.
+From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound EmptySig Build Runs.
 From DepTypes.Configs Require Import Finite Predicative.
-From DepTypes.SystemU Require Import Looping.
-From DepTypes.MLTT Require Import Choose.
 
 Open Scope string_scope.
 Open Scope nterm_scope.
@@ -39,10 +37,10 @@ Proof. vm_compute. reflexivity. Qed.
 (** ** The dependent pair *)
 
 Theorem true_pair_typed : predicative ;; [] ⊢ build [] ⟨NTrue, NTt⟩ ⇓ build [] true_sigma.
-Proof. apply (accepted_check _ pair_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ pair_fuel). vm_compute. reflexivity. Qed.
 
 Example false_pair_rejected :
-  snd (run_check predicative ∅ pair_fuel [] (build [] ⟨NFalse, NTt⟩) (build [] true_sigma))
+  checks predicative ∅ pair_fuel [] ⟨NFalse, NTt⟩ true_sigma
   = Rejected (EMismatch Tt (App (build [] is_true) BFalse) Unit).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -72,10 +70,10 @@ Proof. vm_compute. reflexivity. Qed.
 (** ** Products and levels *)
 
 Theorem product_typed : predicative ;; [] ⊢ build [] ⟨NTrue, NFalse⟩ ⇓ build [] (NBool ⨯ NBool).
-Proof. apply (accepted_check _ pair_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ pair_fuel). vm_compute. reflexivity. Qed.
 
 Example sigma_of_universe :
-  snd (run_infer predicative ∅ pair_fuel [] (build [] (Σ "b" : NBool, Type@ 0)))
+  infers predicative ∅ pair_fuel [] (Σ "b" : NBool, Type@ 0)
   = Accepted (Srt (Univ 1)).
 Proof. vm_compute. reflexivity. Qed.
 

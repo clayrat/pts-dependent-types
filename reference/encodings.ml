@@ -6,7 +6,7 @@
    compares the terms, their typing and their evaluation with the extract. *)
 
 module P = Pts_native
-open Looping
+open Named
 
 let c_nat = pi "X" star (arrows [arrow (name "X") (name "X"); name "X"] (name "X"))
 let c_bool = pi "X" star (arrows [name "X"; name "X"] (name "X"))
@@ -65,8 +65,8 @@ let is_zero_lazy =
 let ifz ty c a b = call is_zero [c; ty; a; b]
 let ifz_lazy ty c a b = call is_zero_lazy [c; ty; a; b]
 
-let omega_nat = call l0 [c_nat; abs ["x"] (name "x")]
-let omega_fun = call l0 [arrow c_nat c_nat; abs ["g"] (name "g")]
+let omega_nat = call Looping.l0 [c_nat; abs ["x"] (name "x")]
+let omega_fun = call Looping.l0 [arrow c_nat c_nat; abs ["g"] (name "g")]
 
 let church t = build [] t
 

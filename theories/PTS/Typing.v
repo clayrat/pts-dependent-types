@@ -13,7 +13,15 @@
     - Σ formed by the rules [spec_sigma S], pairs and projections, the
       second one at [B[fst p/0]];
     - when [spec_decls S], the constants of a signature [sg] at their
-      closed types.
+      closed types;
+    - [match] on an element of [D Δ ū] of the signature, with a motive
+      into a sort its category allows ([allows_elimination]) and one
+      branch per constructor, at [P ū x];
+    - [fix] at its annotated type, with a structural argument of an
+      inductive type of the signature and a body starting with λ up to
+      it, typed with the function itself in the context, and guarded
+      (PTS.Guard): every recursive call is on a strict subterm of the
+      structural argument.
 
     Conversion is that of the signature; the judgment is
     [has_type S sg Γ t A], and PTS.EmptySig gives the notation
@@ -29,8 +37,9 @@
     annotations are inserted. *)
 
 From Stdlib Require Import List.
+From Stdlib Require String.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Signature Reduction.
+From DepTypes.PTS Require Import Syntax Spec Signature Reduction Guard.
 
 Reserved Notation "S ;; G ⊢ t ∈ A" (at level 70, G at next level, t at next level).
 
@@ -130,10 +139,34 @@ Section Typing.
   (** constants *)
   | T_Const : forall G g A,
       wf_ctx G -> spec_decls S = true -> sig_type sg g = Some A ->
-      has_type G (Const g) A.
+      has_type G (Const g) A
+  (** match and fix *)
+  | T_Case : forall G D s P x bs d ps us,
+      spec_decls S = true -> sig_ind sg D = Some d ->
+      allows_elimination S (ind_elim d) s = true ->
+      length ps = length (ind_params d) -> length us = length (ind_indices d) ->
+      has_type G x (apps (Const (Ind D)) (ps ++ us)) ->
+      has_type G P (case_motive_type d ps s) ->
+      has_branches G d ps P (ind_ctors d) bs ->
+      has_type G (Case D s P x bs) (apps P (us ++ [x]))
+  | T_Fix : forall G A k b s D,
+      has_type G A (Srt s) ->
+      struct_arg sg A k D -> sig_ind sg D <> None ->
+      has_type (A :: G) b (lift 1 A) ->
+      fix_guarded sg k b ->
+      has_type G (Fix A k b) A
+
+  (** the branches of a match, one per constructor, in order *)
+  with has_branches : ctx -> ind_desc -> list term -> term -> list ctor_desc -> list term -> Prop :=
+  | TB_Nil : forall G d ps P, has_branches G d ps P [] []
+  | TB_Cons : forall G d ps P c cs b bs,
+      has_type G b (case_branch_type d ps P c) ->
+      has_branches G d ps P cs bs ->
+      has_branches G d ps P (c :: cs) (b :: bs).
 
   Scheme wf_ctx_mut := Induction for wf_ctx Sort Prop
-    with has_type_mut := Induction for has_type Sort Prop.
+    with has_type_mut := Induction for has_type Sort Prop
+    with has_branches_mut := Induction for has_branches Sort Prop.
 End Typing.
 
 (** ** Type-correct signatures

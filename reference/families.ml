@@ -5,11 +5,10 @@
    two positions in an order its index tells apart, and whose twin has a
    field after a recursive one. *)
 
-open Looping
+open Named
 module P = Pts_native
 module Co = Constants
 
-let universe i = Sort (P.Univ i)
 let k g = Const (P.Const g)
 let bool = Const P.Bool
 let nat = Co.nat and zero = Co.zero and succ = Co.succ
@@ -18,10 +17,10 @@ let nat = Co.nat and zero = Co.zero and succ = Co.succ
 let vec a n = call (k (P.Ind "Vec")) [a; n]
 let vnil a = Apply (k (P.Ctor ("Vec", "nil")), a)
 let vcons a n x xs = call (k (P.Ctor ("Vec", "cons"))) [a; n; x; xs]
-let elim_vec = k (P.Elim ("Vec", 0))
+let elim_vec = k (P.Elim ("Vec", P.Univ 0))
 
 let vec_desc = {
-  P.ind_name = "Vec"; ind_params = [P.Srt (P.Univ 0)]; ind_indices = [build ["A"] nat]; ind_level = 0;
+  P.ind_name = "Vec"; ind_params = [P.Srt (P.Univ 0)]; ind_indices = [build ["A"] nat]; ind_sort = P.Univ 0; ind_elim = P.AllSorts;
   ind_ctors = [
     { P.ctor_name = "nil"; ctor_fields = []; ctor_indices = [build ["A"] zero] };
     { P.ctor_name = "cons";
@@ -44,12 +43,12 @@ let elim_vec_ty =
 (* W-types. *)
 let w a b = call (k (P.Ind "W")) [a; b]
 let sup a b x f = call (k (P.Ctor ("W", "sup"))) [a; b; x; f]
-let elim_w = k (P.Elim ("W", 0))
+let elim_w = k (P.Elim ("W", P.Univ 0))
 
 let w_desc = {
   P.ind_name = "W";
   ind_params = [P.Srt (P.Univ 0); build ["A"] (arrow (name "A") (universe 0))];
-  ind_indices = []; ind_level = 0;
+  ind_indices = []; ind_sort = P.Univ 0; ind_elim = P.AllSorts;
   ind_ctors = [
     { P.ctor_name = "sup";
       ctor_fields = [P.FArg (build ["B"; "A"] (name "A"));
@@ -73,13 +72,13 @@ let leaf a h x = call (k (P.Ctor ("Tr", "leaf"))) [a; h; x]
 let node a h x f = call (k (P.Ctor ("Tr", "node"))) [a; h; x; f]
 let fork a h x f = call (k (P.Ctor ("Tr", "fork"))) [a; h; x; f]
 let twin a h x l y r = call (k (P.Ctor ("Tr", "twin"))) [a; h; x; l; y; r]
-let elim_tr = k (P.Elim ("Tr", 0))
+let elim_tr = k (P.Elim ("Tr", P.Univ 0))
 let binary a = arrows [a; a] a
 
 let tr_desc = {
   P.ind_name = "Tr";
   ind_params = [P.Srt (P.Univ 0); build ["A"] (binary (name "A"))];
-  ind_indices = [build ["h"; "A"] (name "A")]; ind_level = 0;
+  ind_indices = [build ["h"; "A"] (name "A")]; ind_sort = P.Univ 0; ind_elim = P.AllSorts;
   ind_ctors = [
     { P.ctor_name = "leaf"; ctor_fields = [P.FArg (build ["h"; "A"] (name "A"))];
       ctor_indices = [build ["a"; "h"; "A"] (name "a")] };
@@ -135,9 +134,9 @@ let elim_tr_ty =
 (* Over ℕ and its eliminator, entry by entry. *)
 let signature =
   List.fold_left Co.add (Co.base_signature true) [
-    P.EInd vec_desc; P.EElim ("Vec", 0, build [] elim_vec_ty, true);
-    P.EInd w_desc; P.EElim ("W", 0, build [] elim_w_ty, true);
-    P.EInd tr_desc; P.EElim ("Tr", 0, build [] elim_tr_ty, true);
+    P.EInd vec_desc; P.EElim ("Vec", P.Univ 0, build [] elim_vec_ty, true);
+    P.EInd w_desc; P.EElim ("W", P.Univ 0, build [] elim_w_ty, true);
+    P.EInd tr_desc; P.EElim ("Tr", P.Univ 0, build [] elim_tr_ty, true);
   ]
 
 (* Open terms for the ι-rules: each rule is (context, lhs, rhs, type). *)

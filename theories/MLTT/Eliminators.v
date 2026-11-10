@@ -16,10 +16,8 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound Signature EmptySig.
+From DepTypes.PTS Require Import Syntax Named Spec Reduction Eval Bidir Check CheckSound Signature EmptySig Build Runs.
 From DepTypes.Configs Require Import Finite Predicative.
-From DepTypes.SystemU Require Import Looping.
-From DepTypes.MLTT Require Import Choose.
 
 Open Scope string_scope.
 Open Scope nterm_scope.
@@ -44,7 +42,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Theorem void_elim_typed :
   predicative ;; in_ctx void_ctx ⊢ term_in void_ctx void_elim ⇓ term_in void_ctx "A".
-Proof. apply (accepted_check _ elim_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ elim_fuel). vm_compute. reflexivity. Qed.
 
 Example void_elim_neutral :
   normalize ∅ elim_fuel (term_in void_ctx void_elim)
@@ -53,8 +51,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** [tt] is no proof of Void. *)
 Example void_elim_wrong_scrutinee :
-  snd (run_infer predicative ∅ elim_fuel (in_ctx void_ctx)
-         (term_in void_ctx (NElimVoid void_family NTt)))
+  infers predicative ∅ elim_fuel void_ctx (NElimVoid void_family NTt)
   = Rejected (EMismatch Tt Void Unit).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -78,11 +75,11 @@ Example unit_resolves :
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem unit_elim_typed : predicative ;; [] ⊢ build [] (unit_elim NTt) ⇓ Bool.
-Proof. apply (accepted_check _ elim_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_check _ _ elim_fuel). vm_compute. reflexivity. Qed.
 
 (** Its type is [C tt], which computes to [Bool]. *)
 Example unit_elim_synthesizes :
-  snd (run_infer predicative ∅ elim_fuel [] (build [] (unit_elim NTt)))
+  infers predicative ∅ elim_fuel [] (unit_elim NTt)
   = Accepted (App (build [] unit_family) Tt).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -99,7 +96,7 @@ Proof. vm_compute. reflexivity. Qed.
 Definition unit_ctx : list (string * nterm) := [("u", NUnit)].
 
 Example unit_elim_open_synthesizes :
-  snd (run_infer predicative ∅ elim_fuel (in_ctx unit_ctx) (term_in unit_ctx (unit_elim "u")))
+  infers predicative ∅ elim_fuel unit_ctx (unit_elim "u")
   = Accepted (App (build [] unit_family) (Var 0)).
 Proof. vm_compute. reflexivity. Qed.
 

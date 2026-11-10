@@ -28,13 +28,27 @@
     sides reach), and the result families of eliminators (with their
     sort: a universe means large elimination).
 
+    A [match] on D is checked in the order of its rule: D is a family of
+    the signature, its category allows motives into the given sort
+    ([allows_elimination], [EElimSort] otherwise), there is one branch
+    per constructor, the type of the scrutinee unfolds to [D ps us],
+    the motive checks against [case_motive_type] and every branch
+    against its [case_branch_type].  Branches are positional: a missing
+    or a repeated branch shows as a wrong number of them.  A [fix]: its
+    annotation is a type, its [k]-th domain unfolds to a family of the
+    signature, its body starts with [k + 1] λ and checks against the
+    annotation with the function itself in the context, and then its
+    guard (PTS.Guard) accepts the recursive calls ([ENotGuarded]
+    otherwise, with the event [EvGuard] on success).
+
     The entry points [run_infer] and [run_check] validate the context and
     the expected type before typing the term. *)
 
-From Stdlib Require Import List.
+From Stdlib Require Import List Bool.
+From Stdlib Require String.
 Import ListNotations.
 From DepTypes.Common Require Import Result Traced.
-From DepTypes.PTS Require Import Syntax Spec Signature Eval.
+From DepTypes.PTS Require Import Syntax Spec Signature Eval Guard.
 
 Inductive error : Type :=
 | EUnboundVar : nat -> error
@@ -52,7 +66,21 @@ Inductive error : Type :=
 | ENoSigmaRule : term -> sort -> sort -> error   (** a Σ-type and its missing rule *)
 | ENotASigma : term -> term -> error     (** a pair or projected term and its type, not a Σ *)
 | ENoDecls : term -> error               (** a constant while constants are off *)
-| EUnknownConst : gref -> error.         (** a constant missing from the signature *)
+| EUnknownConst : gref -> error          (** a constant missing from the signature *)
+| ENotInductive : term -> String.string -> term -> error
+    (** a scrutinee, the family of its match, and its type: not an element of the family *)
+| EElimSort : String.string -> sort -> error
+    (** the category of elimination of D does not allow motives into [s] *)
+| EBranchCount : term -> nat -> nat -> error
+    (** a match, the number of constructors and of branches *)
+| ENoStructArg : term -> nat -> term -> error
+    (** a fix, its structural position, and the rest of its type: not a Π *)
+| EStructNotInductive : term -> nat -> term -> error
+    (** a fix, its structural position, and the type there: not a family of the signature *)
+| EFixBody : term -> nat -> error
+    (** a fix whose body has fewer λ than its structural position plus one *)
+| ENotGuarded : term -> guard_error -> error.
+    (** a fix and the recursive call its guard refuses *)
 
 (** The events of a run.  A run of an entry point has three phases, each
     opened by a marker: the entries of the context, from the outermost
@@ -73,8 +101,13 @@ Inductive event : Type :=
 | EvConv : term -> term -> term -> event         (** inferred [A] ≡ expected [T], both reaching [V] *)
 | EvFamily : term -> term -> sort -> event       (** result family [C] over [D] into [s] *)
 | EvSigmaRule : sort -> sort -> sort -> event    (** the Σ-rule [(s1, s2, s3)] *)
-| EvUnfoldSigma : term -> term -> term -> term -> event.
+| EvUnfoldSigma : term -> term -> term -> term -> event
     (** [t]: its type [T] unfolds to Σ A. B *)
+| EvCase : String.string -> sort -> list term -> list term -> event
+    (** a match on [D ps us] into [s] *)
+| EvBranch : String.string -> term -> event      (** the branch of [c] checked against [T] *)
+| EvFix : nat -> String.string -> event          (** a fix structural in its argument [k], of type D *)
+| EvGuard : nat -> event.                        (** its recursive calls decrease in the argument [k] *)
 
 (** Inside the checker a run fails either by rejecting the input or by
     running out of fuel while typing a term. *)
@@ -186,6 +219,61 @@ Section Check.
     | _ => reject (EBadFamily C D0 D)
     end.
 
+  (** The family [D], as the head of a spine. *)
+  Definition is_ind (D : String.string) (h : term) : bool :=
+    match h with
+    | Const (Ind D') => String.eqb D' D
+    | _ => false
+    end.
+
+  (** [X], the type of the scrutinee [x] of a match on [D], unfolded to
+      [D ps us]: the parameters and the indices. *)
+  Definition as_ind (x X : term) (D : String.string) (d : ind_desc) : M (list term * list term) :=
+    match whnf sg fuel X with
+    | HeadForm X' =>
+        let p := length (ind_params d) in
+        let args := spine_args X' in
+        if is_ind D (spine_head X') && Nat.eqb (length args) (p + length (ind_indices d))
+        then tret (firstn p args, skipn p args)
+        else reject (ENotInductive x D X')
+    | HeadOutOfFuel _ => no_fuel x
+    end.
+
+  Definition elim_sort (D : String.string) (d : ind_desc) (s : sort) : M unit :=
+    if allows_elimination S (ind_elim d) s then tret tt else reject (EElimSort D s).
+
+  (** The structural argument of the fix [t] at [k0]: the [k]-th domain
+      of [T] unfolds to a family of the signature, whose name is returned. *)
+  Fixpoint struct_ind (t : term) (k0 : nat) (T : term) (k : nat) : M String.string :=
+    match whnf sg fuel T with
+    | HeadForm (Pi A B) =>
+        match k with
+        | O =>
+            match whnf sg fuel A with
+            | HeadForm A' =>
+                match spine_head A' with
+                | Const (Ind D) =>
+                    match sig_ind sg D with
+                    | Some _ => tret D
+                    | None => reject (EUnknownConst (Ind D))
+                    end
+                | _ => reject (EStructNotInductive t k0 A')
+                end
+            | HeadOutOfFuel _ => no_fuel t
+            end
+        | Datatypes.S k' => struct_ind t k0 B k'
+        end
+    | HeadForm T' => reject (ENoStructArg t k0 T')
+    | HeadOutOfFuel _ => no_fuel t
+    end.
+
+  (** The guard of the fix [t] structural in its argument [k]. *)
+  Definition guarded (t : term) (k : nat) (b : term) : M unit :=
+    match guard_fix sg k b with
+    | Ok _ => temit (EvGuard k)
+    | Err e => reject (ENotGuarded t e)
+    end.
+
   Fixpoint tc (G : ctx) (t : term) (expected : option term) {struct t} : M term :=
     (** [A], a component of [t], synthesizes a sort. *)
     let sort_of (G : ctx) (A : term) : M sort :=
@@ -265,6 +353,37 @@ Section Check.
           | Some A => tret A
           | None => reject (EUnknownConst g)
           end
+      | Case D s P x bs =>
+          let! _ := decls t in
+          match sig_ind sg D with
+          | None => reject (EUnknownConst (Ind D))
+          | Some d =>
+              let! _ := elim_sort D d s in
+              let count := EBranchCount t (length (ind_ctors d)) (length bs) in
+              if Nat.eqb (length bs) (length (ind_ctors d)) then
+                let! X := tc G x None in
+                let! pu := as_ind x X D d in
+                let (ps, us) := pu in
+                let! _ := temit (EvCase D s ps us) in
+                let! _ := tc G P (Some (case_motive_type d ps s)) in
+                (* the branches against the constructors, in order *)
+                let! _ := titer2 (fun c b =>
+                  let T := case_branch_type d ps P c in
+                  let! _ := temit (EvBranch (ctor_name c) T) in
+                  let! _ := tc G b (Some T) in
+                  tret tt) (Reject count) (ind_ctors d) bs in
+                tret (apps P (us ++ [x]))
+              else reject count
+          end
+      | Fix A k b =>
+          let! _ := sort_of G A in
+          let! D := struct_ind t k A k in
+          let! _ := temit (EvFix k D) in
+          if has_lams (Nat.succ k) b then
+            let! _ := tc (A :: G) b (Some (lift 1 A)) in
+            let! _ := guarded t k b in
+            tret A
+          else reject (EFixBody t k)
       end in
     match expected, t with
     | None, _ => synth tt

@@ -2,10 +2,9 @@
    as theories/MLTT/Pairs.v: IsTrue b = elimBool (λ_. Type0) Unit Void b,
    and the pairs and projections around Σb:Bool. IsTrue b. *)
 
-open Looping
+open Named
 module P = Pts_native
 
-let universe i = Sort (P.Univ i)
 let bool = Const P.Bool
 
 let is_true =

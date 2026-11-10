@@ -6,10 +6,9 @@
 
    where [if b then A else B] is [elimBool (λ_. Type0) A B b]. *)
 
-open Looping
+open Named
 module P = Pts_native
 
-let universe i = Sort (P.Univ i)
 let bool = Const P.Bool
 
 let universe_family = ann (abs ["b"] (universe 0)) (arrow bool (universe 1))

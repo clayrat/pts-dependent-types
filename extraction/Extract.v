@@ -9,12 +9,13 @@
     builder (PTS.Named) are OCaml strings. *)
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlNativeString.
-From DepTypes.PTS Require Import Syntax Named Spec Signature Eval Check.
+From DepTypes.PTS Require Import Syntax Telescope Named Spec Signature Eval EvalSrc Guard Check Build.
 From DepTypes.Configs Require Import Finite Predicative.
 From DepTypes.SystemU Require Import Looping Encodings.
 From DepTypes.MLTT Require Import Choose Eliminators Pairs Constants Families.
 From DepTypes.PCFTranslation Require Import Translate Programs.
 From PCF Require Examples OperationalSemantics.
+From DepTypes.CIC Require Import Match GuardExamples.
 From DepTypes Require Import Examples.
 
 Extraction Language OCaml.
@@ -25,17 +26,28 @@ Extract Inlined Constant Init.Nat.add => "(+)".
 Extract Inlined Constant Init.Nat.max => "max".
 Extract Inlined Constant Init.Nat.eqb => "(=)".
 Extract Inlined Constant Init.Nat.ltb => "(<)".
+Extract Inlined Constant Init.Nat.leb => "(<=)".
 Extract Inlined Constant PeanoNat.Nat.add => "(+)".
 Extract Inlined Constant PeanoNat.Nat.max => "max".
 Extract Inlined Constant PeanoNat.Nat.eqb => "(=)".
 Extract Inlined Constant PeanoNat.Nat.ltb => "(<)".
+Extract Inlined Constant PeanoNat.Nat.leb => "(<=)".
+
+(** [rev] of the standard library appends at every element, which is
+    quadratic; OCaml's [List.rev] computes the same list in linear time. *)
+Extract Inlined Constant List.rev => "List.rev".
 
 Extraction "deptypes.ml"
   term_eqb sort_eqb gref_eqb rename lift subst subst1 arrow times free_in map_sorts lookup
   apps spine_head spine_args pis lams vars
   sig_empty sig_add sig_type sig_delta ind_type ctor_type field_type elim_arity elim_view full_elim iota
-  resolve resolve_ctx
+  allows_elimination
+  inst_params case_motive_type case_branch_type fix_unfold
+  spine_value eval_src
+  entry_marks guard guard_fix
+  resolve resolve_ctx napps
   lambda_star system_u system_u_minus predicative pure_predicative u_to_univ
+  coc predicative_prop
   classify normalize_trace normalize whnf convert
   infer check run_infer run_check
   id_ty id_tm id_applied_ctx id_applied star_box_ctx star_box
@@ -54,4 +66,9 @@ Extraction "deptypes.ml"
   family_fuel vec_desc w_desc tr_desc elim_vec_ty elim_w_ty elim_tr_ty family_entries sg_families
   vec_rule_ctx w_rule_ctx tr_rule_ctx tr_fork_ctx tr_twin_ctx two_bools vnot positions nat_w zero_w succ_w to_nat
   second tree fork_tree twin_tree label
+  match_fuel nat_rect_ty nat_rect rect_ctx open_match plus_fix match_entries sg_match nat_numeral
+  append_ty append one_true one_false copy_ty copy rect_body succ_branch wrong_motive
+  boolp_desc sg_boolp trueP match_boolp loop
+  nat_case guard_of GuardExamples.half size_ty size under_binders pred_ann apply_to g_pred partial bare nested
+  shadowed nonrec_field half_position
   PCF.Examples.add PCF.Examples.mul PCF.Examples.fact PCF.OperationalSemantics.evalFuel.

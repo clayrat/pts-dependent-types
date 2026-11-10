@@ -1,8 +1,9 @@
 (** * Regression tests for the base definitions
 
     Substitution under several binders without capture, open terms, the
-    sort tables of U⁻ and of the predicative hierarchy, normal order, and
-    the gap between declarative typing and the annotated kernel. *)
+    sort tables of U⁻, λC, the predicative hierarchy and the hierarchy
+    with Prop, normal order, and the gap between declarative typing and
+    the annotated kernel. *)
 
 From Stdlib Require Import List Relations.
 Import ListNotations.
@@ -94,6 +95,59 @@ Proof. reflexivity. Qed.
 Example map_sorts_pi :
   map_sorts u_to_univ (Pi (Srt Star) (arrow (Var 0) (Var 0)))
   = Pi (Srt (Univ 0)) (Pi (Var 0) (Var 1)).
+Proof. reflexivity. Qed.
+
+Example predicative_no_prop :
+  spec_sort predicative Prp = false /\ spec_rule predicative (Univ 0) Prp = None.
+Proof. split; reflexivity. Qed.
+
+(** ** λC: all four rules, the product in the sort of its codomain *)
+
+Definition coc_sorts : list sort := [Star; Box].
+
+Example coc_rules :
+  map (fun s1 => map (spec_rule coc s1) coc_sorts) coc_sorts
+  = [ [Some Star; Some Box];      (* (∗,∗), (∗,□) *)
+      [Some Star; Some Box] ].    (* (□,∗), (□,□) *)
+Proof. reflexivity. Qed.
+
+(** □ is the top sort, and λC has no △. *)
+Example coc_axioms :
+  map (spec_axiom coc) [Star; Box; Tri] = [Some Box; None; None]
+  /\ spec_sort coc Tri = false /\ spec_rule coc Tri Box = None.
+Proof. repeat split. Qed.
+
+(** U⁻ lacks exactly the rule (∗,□) of λC and has (△,□) instead. *)
+Example coc_against_u_minus :
+  spec_rule coc Star Box = Some Box /\ spec_rule system_u_minus Star Box = None.
+Proof. split; reflexivity. Qed.
+
+(** ** The hierarchy with Prop *)
+
+Definition prop_sorts : list sort := [Prp; Univ 0; Univ 2].
+
+(** Π: a product into Prop is in Prop whatever its domain. *)
+Example prop_rules :
+  map (fun s1 => map (spec_rule predicative_prop s1) prop_sorts) prop_sorts
+  = [ [Some Prp; Some (Univ 0); Some (Univ 2)];     (* Prop → … *)
+      [Some Prp; Some (Univ 0); Some (Univ 2)];     (* Type₀ → … *)
+      [Some Prp; Some (Univ 2); Some (Univ 2)] ].   (* Type₂ → … *)
+Proof. reflexivity. Qed.
+
+(** Σ: always in Type, the domain keeping its level. *)
+Example prop_sigma_rules :
+  map (fun s1 => map (spec_sigma predicative_prop s1) prop_sorts) prop_sorts
+  = [ [Some (Univ 0); Some (Univ 0); Some (Univ 2)];
+      [Some (Univ 0); Some (Univ 0); Some (Univ 2)];
+      [Some (Univ 2); Some (Univ 2); Some (Univ 2)] ].
+Proof. reflexivity. Qed.
+
+Example prop_axioms :
+  map (spec_axiom predicative_prop) prop_sorts = [Some (Univ 1); Some (Univ 1); Some (Univ 3)].
+Proof. reflexivity. Qed.
+
+Example prop_no_named_sorts :
+  map (spec_sort predicative_prop) [Star; Box; Tri; Prp; Univ 5] = [false; false; false; true; true].
 Proof. reflexivity. Qed.
 
 (** ** Normal order *)

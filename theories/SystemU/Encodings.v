@@ -32,7 +32,7 @@
 From Stdlib Require Import String List.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound Signature EmptySig.
+From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound Signature EmptySig Build.
 From DepTypes.Configs Require Import Finite.
 From DepTypes.SystemU Require Import Looping.
 
@@ -205,7 +205,7 @@ Proof.
   apply andb_prop in H as [_ H].
   destruct (snd (run_infer system_u_minus ∅ looping_fuel [] (church t))) as [B| |] eqn:E;
     try discriminate.
-  apply term_eqb_eq in H. subst. exact (accepted_synth _ _ _ _ E).
+  apply term_eqb_eq in H. subst. exact (accepted_synth _ _ _ _ _ _ E).
 Qed.
 
 (** The rest of stage 4: the translation of Ω_ℕ is a numeral program of

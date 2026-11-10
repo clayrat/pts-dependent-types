@@ -15,9 +15,12 @@ the scheme of descriptions. Evaluation and checking take the signature as an
 optional `~sg`, the empty one by default, so the callers of lecture 6 are
 unchanged.
 
+`named.ml` is the builder of the examples, as `PTS/Named.v` and
+`PTS/Build.v`: named OCaml terms, resolved to de Bruijn indices of the
+native syntax. It fails on an unbound name.
+
 `looping.ml` independently builds the Hurkens-derived looping combinator
-from named OCaml terms, resolves binders to de Bruijn indices, and defines
-the family `Lₙ`. It fails on an unbound name. The differential test compares
+with this builder and defines the family `Lₙ`. The differential test compares
 these native terms with the Rocq extract before running the native checker
 and evaluator on them.
 
@@ -58,6 +61,21 @@ closed computations. These rules exercise what ℕ leaves idle: the lifts under
 the positions of a recursive field, the instantiation of its indices with
 the positions, the earlier fields and the parameters, the order of several
 positions, and fields after a recursive one.
+
+`matches.ml` builds the match and fix programs of `CIC/Match.v` with the
+builder, which also writes `Match` and `Fixpoint`: `nat_rect` at two levels,
+`plus` as a δ-constant, `append` on vectors, `copy` on W, the refused terms,
+and a propositional boolean eliminable into Prop only. The differential test
+compares their terms, complete checker traces in several signatures and
+in the tables with and without Prop, normal-order and weak-head results,
+the ι-equations of `nat_rect` on open terms, the types of motives and
+branches for given parameters, and `eval_src` with several budgets.
+
+The guard is native too, with its marks and errors. `matches.ml` builds
+the programs of `CIC/GuardExamples.v` as well, and the differential test compares
+their terms, checker traces and guard results, and the guard of every body
+of its corpus, and of the leading λ of each, under several lists of marks,
+structural positions and both modes of a spine.
 
 `extracted.ml` converts between the native syntax and the extract's: terms,
 sorts and constant names both ways, and descriptions, signature entries,

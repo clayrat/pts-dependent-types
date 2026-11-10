@@ -16,18 +16,26 @@ vendor/strictness-pcf/theories/Examples.v
 
 theories/Common/Result.v
 theories/Common/Traced.v
+theories/Common/Outcome.v
 theories/PTS/Syntax.v
+theories/PTS/Telescope.v
 theories/PTS/Named.v
+theories/PTS/Build.v
+theories/PTS/Runs.v
 theories/PTS/Spec.v
 theories/PTS/Signature.v
 theories/PTS/Reduction.v
 theories/PTS/SubstLaws.v
 theories/PTS/NormalOrder.v
 theories/PTS/Eval.v
+theories/PTS/EvalSrc.v
+theories/PTS/Guard.v
+theories/PTS/GuardSound.v
 theories/PTS/Typing.v
 theories/PTS/Bidir.v
 theories/PTS/Check.v
 theories/PTS/CheckSound.v
+theories/PTS/Contracts.v
 theories/PTS/EmptySig.v
 theories/Configs/Finite.v
 theories/Configs/Predicative.v
@@ -43,6 +51,9 @@ theories/MLTT/Eliminators.v
 theories/MLTT/Pairs.v
 theories/MLTT/Constants.v
 theories/MLTT/Families.v
+theories/CIC/Impredicative.v
+theories/CIC/Match.v
+theories/CIC/GuardExamples.v
 theories/Contracts.v
 theories/Examples.v
 theories/Tests.v

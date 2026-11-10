@@ -7,7 +7,11 @@
       constructors, and the projections of a pair;
     - δ and ι of a signature [sg] (PTS.Signature): the unfolding of a
       δ-constant, and the scheme of an eliminator instance with active
-      rules on a constructor spine.
+      rules on a constructor spine;
+    - ι of [match] on a constructor spine, and the unfolding of [fix]
+      applied up to a structural argument that is a constructor spine.
+      A [fix] on any other argument, a variable in particular, stays as
+      it is: unfolding it would not terminate.
 
     Everything here is relative to the signature, a variable of the
     section; the notations [⇝], [⇝*] and [≡] are local to it.  Outside,
@@ -24,7 +28,9 @@
     [red1] contracts any redex, so it is a conversion relation, not an
     evaluation strategy; the evaluator follows normal order, PTS.NormalOrder. *)
 
-From Stdlib Require Import Relations.
+From Stdlib Require Import Relations List.
+From Stdlib Require String.
+Import ListNotations.
 From DepTypes.PTS Require Import Syntax Signature.
 
 Reserved Notation "t ⇝ u" (at level 70, no associativity).
@@ -66,10 +72,18 @@ Inductive red1 : term -> term -> Prop :=
 | R_PairR : forall a b b', b ⇝ b' -> Pair a b ⇝ Pair a b'
 | R_Fst : forall p p', p ⇝ p' -> Fst p ⇝ Fst p'
 | R_Snd : forall p p', p ⇝ p' -> Snd p ⇝ Snd p'
-(** the contractions of the signature, last: their conclusions are
-    generic, so [constructor] tries the specific rules first *)
+| R_CaseMot : forall D s P P' x bs, P ⇝ P' -> Case D s P x bs ⇝ Case D s P' x bs
+| R_CaseScr : forall D s P x x' bs, x ⇝ x' -> Case D s P x bs ⇝ Case D s P x' bs
+| R_CaseBr : forall D s P x bs1 b b' bs2, b ⇝ b' ->
+    Case D s P x (bs1 ++ b :: bs2) ⇝ Case D s P x (bs1 ++ b' :: bs2)
+| R_FixType : forall A A' k b, A ⇝ A' -> Fix A k b ⇝ Fix A' k b
+| R_FixBody : forall A k b b', b ⇝ b' -> Fix A k b ⇝ Fix A k b'
+(** the contractions of the signature, of match and of fix, last: their
+    conclusions are generic, so [constructor] tries the specific rules
+    first *)
 | R_Delta : forall g b, sig_delta sg g = Some b -> Const g ⇝ b
-| R_Iota : forall t u, iota sg t = Some u -> t ⇝ u
+| R_Spine : forall t u, spine_iota sg t = Some u -> t ⇝ u
+| R_Case : forall t u, case_iota sg t = Some u -> t ⇝ u
 where "t ⇝ u" := (red1 t u).
 
 (** Multi-step reduction. *)
@@ -97,6 +111,16 @@ Proof.
   - now apply rst_step.
   - apply rst_refl.
   - eapply rst_trans; eassumption.
+Qed.
+
+Lemma red_step_trans : forall t u v, t ⇝ u -> u ⇝* v -> t ⇝* v.
+Proof. intros t u v H1 H2. eapply rt_trans; [apply rt_step, H1 | exact H2]. Qed.
+
+(** The contraction of a spine at its last argument is one step: ι of an
+    instance or the unfolding of a fix. *)
+Lemma spine_iota_red : forall t u, spine_iota sg t = Some u -> t ⇝ u.
+Proof.
+  intros t u H. apply R_Spine, H.
 Qed.
 
 (** ** Congruence of reduction and conversion *)
@@ -150,6 +174,8 @@ Fixpoint erase_ann (t : term) : term :=
   | Fst p => Fst (erase_ann p)
   | Snd p => Snd (erase_ann p)
   | Const g => Const g
+  | Case D s P x bs => Case D s (erase_ann P) (erase_ann x) (map erase_ann bs)
+  | Fix A k b => Fix (erase_ann A) k (erase_ann b)
   end.
 
 (** Multi-step congruences, one per former with subterms. *)
@@ -214,13 +240,50 @@ Proof. intros p p' H. red_cong Fst H. apply rt_refl. Qed.
 Lemma red_snd : forall p p', p ⇝* p' -> Snd p ⇝* Snd p'.
 Proof. intros p p' H. red_cong Snd H. apply rt_refl. Qed.
 
+(** The branches of a match reduce one by one, from the left. *)
+Lemma red_branches : forall D s P x pre bs bs', Forall2 red bs bs' ->
+  Case D s P x (pre ++ bs) ⇝* Case D s P x (pre ++ bs').
+Proof.
+  intros D s P x pre bs bs' H. revert pre.
+  induction H as [|b b' bs bs' Hb _ IH]; intros pre; [apply rt_refl | ].
+  eapply rt_trans.
+  - apply (red_ctx (fun c => Case D s P x (pre ++ c :: bs))); [intros; apply R_CaseBr; assumption | exact Hb].
+  - cbv beta. specialize (IH (pre ++ [b'])). rewrite <- !app_assoc in IH. exact IH.
+Qed.
+
+Lemma red_case : forall D s P P' x x' bs bs',
+    P ⇝* P' -> x ⇝* x' -> Forall2 red bs bs' -> Case D s P x bs ⇝* Case D s P' x' bs'.
+Proof.
+  intros D s P P' x x' bs bs' HP Hx Hb.
+  red_cong (fun a => Case D s a x bs) HP. red_cong (fun a => Case D s P' a bs) Hx.
+  exact (red_branches D s P' x' [] bs bs' Hb).
+Qed.
+
+Lemma red_fix : forall A A' k b b', A ⇝* A' -> b ⇝* b' -> Fix A k b ⇝* Fix A' k b'.
+Proof.
+  intros A A' k b b' HA Hb.
+  red_cong (fun a => Fix a k b) HA. red_cong (fun c => Fix A' k c) Hb. apply rt_refl.
+Qed.
+
+(** The branches of a match, reduced pointwise. *)
+Lemma red_list_map : forall (f g : term -> term) bs, Forall (fun t => f t ⇝* g t) bs ->
+  Forall2 red (map f bs) (map g bs).
+Proof. intros f g bs H. induction H; constructor; assumption. Qed.
+
+Lemma forall_red_map : forall (f : term -> term) bs, Forall (fun t => t ⇝* f t) bs -> Forall2 red bs (map f bs).
+Proof. intros f bs H. rewrite <- (map_id bs) at 1. exact (red_list_map id f bs H). Qed.
+
+Lemma red_list_refl : forall bs, Forall2 red bs bs.
+Proof. induction bs; constructor; [apply rt_refl | assumption]. Qed.
+
 Lemma red_erase : forall t, t ⇝* erase_ann t.
 Proof.
-  induction t; cbn [erase_ann]; try apply rt_refl.
+  induction t using term_ind'; cbn [erase_ann]; try apply rt_refl.
   all: first
     [ eapply rt_trans; [apply rt_step, R_Ann | assumption]
+    | apply red_case; [assumption | assumption | apply forall_red_map; assumption]
     | auto using red_pi, red_lam, red_app, red_elim_void, red_elim_unit, red_elim_bool,
-        red_sigma, red_pair, red_fst, red_snd ].
+        red_sigma, red_pair, red_fst, red_snd, red_fix ].
 Qed.
 
 Lemma erase_conv : forall t u, erase_ann t = erase_ann u -> t ≡ u.
@@ -235,7 +298,35 @@ Qed.
     A term without a one-step reduct. *)
 
 Definition normal (t : term) : Prop := forall u, ~ (t ⇝ u).
+
+(** ** The structural argument of a fix
+
+    The [k]-th domain of a type unfolding to a Π-telescope unfolds to a
+    family [D] of the signature, applied to some arguments. *)
+Inductive struct_arg : term -> nat -> String.string -> Prop :=
+| SA_Here : forall A T B D us, A ⇝* Pi T B -> T ⇝* apps (Const (Ind D)) us -> struct_arg A 0 D
+| SA_Next : forall A T B k D, A ⇝* Pi T B -> struct_arg B k D -> struct_arg A (S k) D.
 End Reduction.
+
+(** Reduction with the δ-constants of the signature opaque is reduction
+    of the signature: its ι-rules are the same, and it has no δ. *)
+Lemma red1_opaque : forall sg t u, red1 (sig_opaque sg) t u -> red1 sg t u.
+Proof.
+  intros sg t u H. induction H; try (constructor; assumption).
+  all: lazymatch goal with
+       | H : sig_delta (sig_opaque _) _ = Some _ |- _ => rewrite sig_delta_opaque in H; discriminate H
+       | H : spine_iota (sig_opaque _) _ = Some _ |- _ => apply R_Spine; rewrite <- spine_iota_opaque; exact H
+       | H : case_iota (sig_opaque _) _ = Some _ |- _ => apply R_Case; rewrite <- case_iota_opaque; exact H
+       end.
+Qed.
+
+Lemma red_opaque : forall sg t u, red (sig_opaque sg) t u -> red sg t u.
+Proof.
+  intros sg t u H. induction H as [t u H | t | t u v _ IH1 _ IH2].
+  - apply rt_step, red1_opaque, H.
+  - apply rt_refl.
+  - eapply rt_trans; eassumption.
+Qed.
 
 (** The lemmas take their signature implicitly: it is fixed by their
     statements. *)
@@ -243,6 +334,8 @@ Arguments conv_refl {sg}.
 Arguments conv_sym {sg}.
 Arguments conv_trans {sg}.
 Arguments red_conv {sg}.
+Arguments red_step_trans {sg}.
+Arguments spine_iota_red {sg}.
 Arguments red_ctx {sg}.
 Arguments conv_app_arg {sg}.
 Arguments red_pi {sg}.
@@ -255,5 +348,11 @@ Arguments red_sigma {sg}.
 Arguments red_pair {sg}.
 Arguments red_fst {sg}.
 Arguments red_snd {sg}.
+Arguments red_branches {sg}.
+Arguments red_case {sg}.
+Arguments red_fix {sg}.
+Arguments red_list_map {sg}.
+Arguments forall_red_map {sg}.
+Arguments red_list_refl {sg}.
 Arguments red_erase {sg}.
 Arguments erase_conv {sg}.

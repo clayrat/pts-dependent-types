@@ -35,10 +35,9 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Named Spec Signature Reduction Eval Bidir Check CheckSound Build Runs.
 From DepTypes.Configs Require Import Predicative.
-From DepTypes.SystemU Require Import Looping.
-From DepTypes.MLTT Require Import Choose Constants.
+From DepTypes.MLTT Require Import Constants.
 
 Open Scope string_scope.
 Open Scope nterm_scope.
@@ -50,13 +49,13 @@ Definition family_fuel : nat := 200.
 Definition Vec (A n : nterm) : nterm := NConst (Ind "Vec") A n.
 Definition vnil (A : nterm) : nterm := NConst (Ctor "Vec" "nil") A.
 Definition vcons (A n x xs : nterm) : nterm := NConst (Ctor "Vec" "cons") A n x xs.
-Definition elim_vec : nterm := NConst (Elim "Vec" 0).
+Definition elim_vec : nterm := NConst (Elim "Vec" (Univ 0)).
 
 Definition vec_desc : ind_desc := {|
   ind_name := "Vec";
   ind_params := [Srt (Univ 0)];
   ind_indices := [build ["A"] Nat];
-  ind_level := 0;
+  ind_sort := Univ 0; ind_elim := AllSorts;
   ind_ctors := [
     {| ctor_name := "nil"; ctor_fields := []; ctor_indices := [build ["A"] zero] |};
     {| ctor_name := "cons";
@@ -76,13 +75,13 @@ Definition elim_vec_ty : nterm :=
 
 Definition W (A B : nterm) : nterm := NConst (Ind "W") A B.
 Definition sup (A B a f : nterm) : nterm := NConst (Ctor "W" "sup") A B a f.
-Definition elim_w : nterm := NConst (Elim "W" 0).
+Definition elim_w : nterm := NConst (Elim "W" (Univ 0)).
 
 Definition w_desc : ind_desc := {|
   ind_name := "W";
   ind_params := [Srt (Univ 0); build ["A"] ("A" ~> Type@ 0)];
   ind_indices := [];
-  ind_level := 0;
+  ind_sort := Univ 0; ind_elim := AllSorts;
   ind_ctors := [
     {| ctor_name := "sup";
        ctor_fields := [FArg (build ["B"; "A"] "A"); FRec [build ["a"; "B"; "A"] ("B" "a")] []];
@@ -102,13 +101,13 @@ Definition leaf (A h a : nterm) : nterm := NConst (Ctor "Tr" "leaf") A h a.
 Definition node (A h a f : nterm) : nterm := NConst (Ctor "Tr" "node") A h a f.
 Definition fork (A h a f : nterm) : nterm := NConst (Ctor "Tr" "fork") A h a f.
 Definition twin (A h a l b r : nterm) : nterm := NConst (Ctor "Tr" "twin") A h a l b r.
-Definition elim_tr : nterm := NConst (Elim "Tr" 0).
+Definition elim_tr : nterm := NConst (Elim "Tr" (Univ 0)).
 
 Definition tr_desc : ind_desc := {|
   ind_name := "Tr";
   ind_params := [Srt (Univ 0); build ["A"] ("A" ~> "A" ~> "A")];
   ind_indices := [build ["h"; "A"] "A"];
-  ind_level := 0;
+  ind_sort := Univ 0; ind_elim := AllSorts;
   ind_ctors := [
     {| ctor_name := "leaf"; ctor_fields := [FArg (build ["h"; "A"] "A")];
        ctor_indices := [build ["a"; "h"; "A"] "a"] |};
@@ -152,9 +151,9 @@ Definition elim_tr_ty : nterm :=
 (** ** The signature *)
 
 Definition family_entries : list entry :=
-  [EElim "Tr" 0 (build [] elim_tr_ty) true; EInd tr_desc;
-   EElim "W" 0 (build [] elim_w_ty) true; EInd w_desc;
-   EElim "Vec" 0 (build [] elim_vec_ty) true; EInd vec_desc] ++ base_entries true.
+  [EElim "Tr" (Univ 0) (build [] elim_tr_ty) true; EInd tr_desc;
+   EElim "W" (Univ 0) (build [] elim_w_ty) true; EInd w_desc;
+   EElim "Vec" (Univ 0) (build [] elim_vec_ty) true; EInd vec_desc] ++ base_entries true.
 
 Definition sg_families : signature := {| sig_entries := family_entries; sig_wf := eq_refl |}.
 
@@ -169,9 +168,9 @@ Definition is_type (A : term) : bool :=
 
 Example constant_types_are_types :
   forallb (fun g => match sig_type sg_families g with Some A => is_type A | None => false end)
-    [Ind "Vec"; Ctor "Vec" "nil"; Ctor "Vec" "cons"; Elim "Vec" 0;
-     Ind "W"; Ctor "W" "sup"; Elim "W" 0;
-     Ind "Tr"; Ctor "Tr" "leaf"; Ctor "Tr" "node"; Ctor "Tr" "fork"; Ctor "Tr" "twin"; Elim "Tr" 0] = true.
+    [Ind "Vec"; Ctor "Vec" "nil"; Ctor "Vec" "cons"; Elim "Vec" (Univ 0);
+     Ind "W"; Ctor "W" "sup"; Elim "W" (Univ 0);
+     Ind "Tr"; Ctor "Tr" "leaf"; Ctor "Tr" "node"; Ctor "Tr" "fork"; Ctor "Tr" "twin"; Elim "Tr" (Univ 0)] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The types of constructors rebuilt from the descriptions are the ones
@@ -223,8 +222,8 @@ Definition tr_twin_ctx : list (string * nterm) :=
 
 Definition accepted (a : answer unit) : bool := match a with Accepted _ => true | _ => false end.
 
-Definition checks (g : list (string * nterm)) (t A : nterm) : bool :=
-  accepted (snd (run_check predicative sg_families family_fuel (in_ctx g) (term_in g t) (term_in g A))).
+Definition accepts (g : list (string * nterm)) (t A : nterm) : bool :=
+  accepted (checks predicative sg_families family_fuel g t A).
 
 (** The ι-rule of a constructor in the context [g]: the kernel contracts
     [lhs] to [rhs] syntactically, the two are convertible, and both check
@@ -234,11 +233,8 @@ Definition iota_rule_holds (g : list (string * nterm)) (lhs rhs ty : nterm) : bo
   | Some u => term_eqb u (term_in g rhs)
   | None => false
   end &&
-  match convert sg_families family_fuel (term_in g lhs) (term_in g rhs) with
-  | ConvEqual _ => true
-  | _ => false
-  end &&
-  checks g lhs ty && checks g rhs ty.
+  converts sg_families family_fuel g lhs rhs &&
+  accepts g lhs ty && accepts g rhs ty.
 
 Example iota_vec :
   iota_rule_holds vec_rule_ctx (elim_vec "A" "P" "mn" "mc" zero (vnil "A")) "mn" ("P" zero (vnil "A")) &&
@@ -292,15 +288,15 @@ Proof. vm_compute. reflexivity. Qed.
     order of the positions apart: with [h y a] in place of [h a y], or
     with [f z y] in place of [f y z], the right side is ill-typed. *)
 Example iota_tr_wrong_sides :
-  checks tr_rule_ctx ("mn" "a" "f" (λ "y", elim_tr_at ("h" "y" "a") ("f" "y")))
+  accepts tr_rule_ctx ("mn" "a" "f" (λ "y", elim_tr_at ("h" "y" "a") ("f" "y")))
     ("P" "a" (node "A" "h" "a" "f")) ||
-  checks tr_fork_ctx ("mf" "a" "f" (λ "y", λ "z", elim_tr_at ("h" ("h" "a" "y") "z") ("f" "z" "y")))
+  accepts tr_fork_ctx ("mf" "a" "f" (λ "y", λ "z", elim_tr_at ("h" ("h" "a" "y") "z") ("f" "z" "y")))
     ("P" "a" (fork "A" "h" "a" "f")) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 (** ** Closed computations *)
 
-Definition checks_closed (t A : nterm) : bool := checks [] t A.
+Definition checks_closed (t A : nterm) : bool := accepts [] t A.
 
 (** Negation of a vector: the motive [λn _. Vec Bool n] depends on the
     index. *)

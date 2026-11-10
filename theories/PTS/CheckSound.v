@@ -10,11 +10,12 @@
     [whnf] is normal-order reduction ([whnf_reduces]), hence [⇝*]; an
     equality of [convert] is conversion ([convert_equal_sound]). *)
 
-From Stdlib Require Import List.
+From Stdlib Require Import List Bool Arith Lia.
+From Stdlib Require String.
 Import ListNotations.
 From DepTypes.Common Require Import Result Traced.
 From Stdlib Require Import Relations.
-From DepTypes.PTS Require Import Syntax Spec Signature Reduction NormalOrder Eval Bidir Check.
+From DepTypes.PTS Require Import Syntax Spec Signature Reduction NormalOrder Eval Guard GuardSound Bidir Check.
 
 Section Sound.
   Variable S : spec.
@@ -124,6 +125,57 @@ Section Sound.
     exists D, K, s. split; [exact Hp | split; [eapply convert_equal_sound; exact E | exact Hs]].
   Qed.
 
+  Lemma is_ind_true : forall D h, is_ind D h = true -> h = Const (Ind D).
+  Proof.
+    intros D h H. destruct h; try discriminate H. destruct g; try discriminate H.
+    apply String.eqb_eq in H. subst. reflexivity.
+  Qed.
+
+  Lemma as_ind_ok : forall x X D d log log' ps us,
+    as_ind sg fuel x X D d log = (log', Ok (ps, us)) ->
+    X ⇝* apps (Const (Ind D)) (ps ++ us) /\
+    length ps = length (ind_params d) /\ length us = length (ind_indices d).
+  Proof.
+    intros x X D d log log' ps us H. unfold as_ind in H.
+    destruct (whnf sg fuel X) as [X' | X'] eqn:W; [ | discriminate H].
+    apply whnf_red in W.
+    destruct (is_ind D (spine_head X')) eqn:Eh; [ | discriminate H].
+    destruct (Nat.eqb (length (spine_args X')) _) eqn:El; [ | discriminate H].
+    apply tret_ok in H. injection H as -> ->. apply is_ind_true in Eh. apply Nat.eqb_eq in El.
+    rewrite firstn_skipn, <- Eh, apps_spine. split; [exact W | ].
+    rewrite length_firstn, length_skipn. split; lia.
+  Qed.
+
+  Lemma elim_sort_ok : forall D d s log log' u,
+    elim_sort S D d s log = (log', Ok u) -> allows_elimination S (ind_elim d) s = true.
+  Proof.
+    intros D d s log log' u H. unfold elim_sort in H.
+    destruct (allows_elimination S (ind_elim d) s); [reflexivity | discriminate H].
+  Qed.
+
+  Lemma struct_ind_ok : forall t k0 k T log log' D,
+    struct_ind sg fuel t k0 T k log = (log', Ok D) ->
+    struct_arg sg T k D /\ sig_ind sg D <> None.
+  Proof.
+    intros t k0 k. induction k as [|k IH]; intros T log log' D H; cbn [struct_ind] in H;
+      destruct (whnf sg fuel T) as [V | V] eqn:W; try discriminate H;
+      apply whnf_red in W; destruct V; try discriminate H.
+    - destruct (whnf sg fuel V1) as [A' | A'] eqn:WA; [ | discriminate H].
+      apply whnf_red in WA.
+      destruct (spine_head A') eqn:Eh; try discriminate H. destruct g; try discriminate H.
+      destruct (sig_ind sg s) as [d'|] eqn:Ed; [ | discriminate H].
+      apply tret_ok in H. subst D. split; [ | rewrite Ed; discriminate].
+      eapply SA_Here; [exact W | ]. rewrite <- (apps_spine A'), Eh in WA. exact WA.
+    - destruct (IH _ _ _ _ H) as [Ha Hd]. split; [eapply SA_Next; eassumption | exact Hd].
+  Qed.
+
+  Lemma guarded_ok : forall t k b log log' u,
+    guarded sg t k b log = (log', Ok u) -> guard_fix sg k b = Ok tt.
+  Proof.
+    intros t k b log log' u H. unfold guarded in H.
+    destruct (guard_fix sg k b) as [[]|]; [reflexivity | discriminate H].
+  Qed.
+
   (** ** Checking a term other than a λ or a pair is synthesis followed
          by conversion *)
 
@@ -138,7 +190,7 @@ Section Sound.
     | H : tbind _ _ _ = (_, Ok _) |- _ =>
         let l := fresh "log" in let a := fresh "a" in let Ha := fresh "Ha" in
         apply tbind_ok in H as (l & a & Ha & H); cbv beta in H
-    | p : (term * term)%type |- _ => destruct p; cbv beta iota in *
+    | p : (_ * _)%type |- _ => destruct p; cbv beta iota in *
     | H : tret _ _ = (_, Ok _) |- _ => apply tret_ok in H; subst
     | H : temit _ _ = (_, Ok _) |- _ => clear H
     | H : reject _ _ = (_, Ok _) |- _ => destruct (reject_ok _ _ _ _ H)
@@ -155,6 +207,18 @@ Section Sound.
         apply family_ok in H as (D & K & s & ? & ? & ?)
     | H : context [match sig_type ?s ?g with _ => _ end] |- _ =>
         let E := fresh "E" in destruct (sig_type s g) eqn:E
+    | H : context [match sig_ind ?s ?D with _ => _ end] |- _ =>
+        let E := fresh "E" in destruct (sig_ind s D) eqn:E
+    | H : context [if Nat.eqb ?a ?b then _ else _] |- _ =>
+        let E := fresh "E" in destruct (Nat.eqb a b) eqn:E; [apply Nat.eqb_eq in E | ]
+    | H : context [if has_lams ?n ?b then _ else _] |- _ =>
+        let E := fresh "E" in destruct (has_lams n b) eqn:E
+    | H : as_ind _ _ _ _ _ _ _ = (_, Ok (_, _)) |- _ =>
+        apply as_ind_ok in H as (? & ? & ?)
+    | H : elim_sort _ _ _ _ _ = (_, Ok _) |- _ => apply elim_sort_ok in H
+    | H : struct_ind _ _ _ _ _ _ _ = (_, Ok _) |- _ => apply struct_ind_ok in H as [? ?]
+    | H : guarded _ _ _ _ _ = (_, Ok _) |- _ =>
+        apply guarded_ok in H; apply guard_fix_sound in H
     | H : tc _ _ _ _ _ None _ = (_, Ok _), IH : forall G, _ /\ _ |- _ =>
         apply (proj1 (IH _)) in H
     | H : tc _ _ _ _ _ (Some _) _ = (_, Ok _), IH : forall G, _ /\ _ |- _ =>
@@ -194,6 +258,27 @@ Section Sound.
           inv_run; econstructor; eauto);
     split; [exact Hs | apply check_from_synth; [reflexivity | reflexivity | exact Hs]].
 
+  (** The branches of a match, each checked by a run that is sound. *)
+  Lemma check_branches_sound : forall G d ps P cs bs e log log' u,
+    Forall (fun b => forall G, (forall log log' A, tc S sg fuel G b None log = (log', Ok A) -> S ;; G ⊢ b ⇑ A) /\
+                             (forall T log log' A, tc S sg fuel G b (Some T) log = (log', Ok A) ->
+                                S ;; G ⊢ b ⇓ T /\ A = T)) bs ->
+    titer2 (fun c b =>
+      let T := case_branch_type d ps P c in
+      let! _ := temit (EvBranch (ctor_name c) T) in
+      let! _ := tc S sg fuel G b (Some T) in
+      tret tt) e cs bs log = (log', Ok u) ->
+    chk_branches S sg G d ps P cs bs.
+  Proof.
+    intros G d ps P cs bs e log log' u Hb H. apply titer2_Forall2 in H. revert Hb.
+    induction H as [|c b cs bs Hcb _ IH]; intros Hb; [constructor | ].
+    inversion Hb as [|? ? Hb1 Hbs]; subst. destruct Hcb as (l1 & l2 & v & Hcb). cbv beta zeta in Hcb.
+    apply tbind_ok in Hcb as (l3 & v3 & _ & Hcb).
+    apply tbind_ok in Hcb as (l4 & v4 & Hcb & _).
+    apply (proj2 (Hb1 G)) in Hcb as [Hcb _].
+    constructor; [exact Hcb | exact (IH Hbs)].
+  Qed.
+
   (** The cases are told apart by the shape of the term, not by their
       position among the constructors of [term]. *)
   Theorem tc_sound : forall t G,
@@ -201,12 +286,22 @@ Section Sound.
     (forall T log log' A, tc S sg fuel G t (Some T) log = (log', Ok A) ->
        S ;; G ⊢ t ⇓ T /\ A = T).
   Proof.
-    induction t; intros G.
+    induction t using term_ind'; intros G.
     all: lazymatch goal with
          | |- (forall log log' A, tc _ _ _ _ ?t None _ = _ -> _) /\ _ =>
              lazymatch t with
              | Lam _ => checking_only C_Lam
              | Pair _ _ => checking_only C_Pair
+             | Case _ _ _ _ ?bs =>
+                 assert (Hs : forall log log' A,
+                            tc S sg fuel G t None log = (log', Ok A) -> S ;; G ⊢ t ⇑ A)
+                   by (intros log log' A H; cbn [tc] in H; inv_run;
+                       match goal with
+                       | Hc : titer2 _ _ _ _ _ = (_, Ok _) |- _ =>
+                           eapply check_branches_sound in Hc; [ | eassumption ]
+                       end;
+                       econstructor; eauto);
+                 split; [exact Hs | apply check_from_synth; [reflexivity | reflexivity | exact Hs]]
              | _ => synthesizing G t
              end
          end.
@@ -294,3 +389,17 @@ Proof.
   apply tbind_ok in H as (l4 & u4 & _ & H). apply check_sound in H.
   repeat split; assumption.
 Qed.
+
+(** ** Accepted runs as derivations
+
+    An accepted run of an entry point is a derivation of the annotated
+    kernel, for any signature: the examples state their typings so, the
+    run settled by computation. *)
+
+Corollary accepted_synth : forall S sg fuel G t A,
+  snd (run_infer S sg fuel G t) = Accepted A -> synth S sg G t A.
+Proof. intros S sg fuel G t A H. exact (proj2 (run_infer_sound S sg fuel G t A H)). Qed.
+
+Corollary accepted_check : forall S sg fuel G t A,
+  snd (run_check S sg fuel G t A) = Accepted tt -> chk S sg G t A.
+Proof. intros S sg fuel G t A H. exact (proj2 (proj2 (run_check_sound S sg fuel G t A tt H))). Qed.

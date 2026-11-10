@@ -3,11 +3,11 @@
    with active ι-rules, and the δ-constant
    double = λn. elimNat (λ_. Nat) zero (λ_ r. succ (succ r)) n. *)
 
-open Looping
+open Named
 module P = Pts_native
 
 let nat_desc = {
-  P.ind_name = "Nat"; ind_params = []; ind_indices = []; ind_level = 0;
+  P.ind_name = "Nat"; ind_params = []; ind_indices = []; ind_sort = P.Univ 0; ind_elim = P.AllSorts;
   ind_ctors = [
     { P.ctor_name = "zero"; ctor_fields = []; ctor_indices = [] };
     { P.ctor_name = "succ"; ctor_fields = [P.FRec ([], [])]; ctor_indices = [] };
@@ -17,14 +17,17 @@ let nat_desc = {
 let nat = Const (P.Const (P.Ind "Nat"))
 let zero = Const (P.Const (P.Ctor ("Nat", "zero")))
 let succ n = Apply (Const (P.Const (P.Ctor ("Nat", "succ"))), n)
-let elim_nat = Const (P.Const (P.Elim ("Nat", 0)))
+let elim_nat = Const (P.Const (P.Elim ("Nat", P.Univ 0)))
 let double n = Apply (Const (P.Const (P.Def "double")), n)
 
-let elim_nat_ty =
-  pi "P" (arrow nat (Sort (P.Univ 0)))
+(* The type of elimNat[j], for motives into Type_j. *)
+let elim_nat_ty_at j =
+  pi "P" (arrow nat (universe j))
     (arrows [Apply (name "P", zero);
              pi "n" nat (arrow (Apply (name "P", name "n")) (Apply (name "P", succ (name "n"))))]
        (pi "n" nat (Apply (name "P", name "n"))))
+
+let elim_nat_ty = elim_nat_ty_at 0
 
 let const_nat = ann (abs ["_"] nat) (arrow nat (Sort (P.Univ 0)))
 let elim_with step n = call elim_nat [const_nat; zero; step; n]
@@ -38,14 +41,17 @@ let add sg entry =
 
 let base_signature active =
   List.fold_left add P.empty_signature
-    [P.EInd nat_desc; P.EElim ("Nat", 0, build [] elim_nat_ty, active)]
+    [P.EInd nat_desc; P.EElim ("Nat", P.Univ 0, build [] elim_nat_ty, active)]
 
 let signature active =
   add (base_signature active) (P.EDef ("double", build [] (arrow nat nat), build [] double_body))
 
 (* The ι-rule on open terms: P z s n are free. *)
-let iota_ctx =
+(* The arguments of elimNat[j] and an object n, free. *)
+let iota_ctx_at j =
   ["n", nat;
    "s", pi "n" nat (arrow (Apply (name "P", name "n")) (Apply (name "P", succ (name "n"))));
    "z", Apply (name "P", zero);
-   "P", arrow nat (Sort (P.Univ 0))]
+   "P", arrow nat (universe j)]
+
+let iota_ctx = iota_ctx_at 0

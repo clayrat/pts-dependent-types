@@ -23,7 +23,7 @@
 From Stdlib Require Import String List Bool Arith Lia Relations.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Named Spec Reduction Bidir Check CheckSound Signature EmptySig.
+From DepTypes.PTS Require Import Syntax Named Spec Reduction Bidir Check CheckSound Signature EmptySig Build.
 From DepTypes.Configs Require Import Finite.
 From DepTypes.SystemU Require Import Looping Encodings.
 From DepTypes.PCFTranslation Require Import Translate.

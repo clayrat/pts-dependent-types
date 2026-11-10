@@ -25,6 +25,10 @@ From Stdlib Require Import String List.
 Import ListNotations.
 From DepTypes.Common Require Import Result.
 From DepTypes.PTS Require Import Syntax Named Reduction NormalOrder Eval Bidir Check CheckSound Signature EmptySig.
+(** [build], [in_ctx] and [term_in] were defined here and in MLTT.Choose
+    before PTS.Build; they are re-exported for the projects that import
+    them from these modules (erasure-cic, elim-inductive-types). *)
+From DepTypes.PTS Require Export Build.
 From DepTypes.Configs Require Import Finite Predicative.
 
 Open Scope string_scope.
@@ -122,14 +126,9 @@ Definition L (n : nat) : nterm :=
 
 (** ** As de Bruijn terms *)
 
-(** The resolved term, or ∗ if a name is unbound; [looping_resolves]
-    shows that the latter does not happen for the terms below. *)
-Definition build (names : list string) (t : nterm) : term :=
-  match resolve names t with
-  | Ok u => u
-  | Err _ => Srt Star
-  end.
-
+(** [build] of PTS.Build falls back on ∗ if a name is unbound;
+    [looping_resolves] shows that this does not happen for the terms
+    below. *)
 Definition looping (n : nat) : term := build [] (L n).
 Definition looping_ty : term := build [] L_ty.
 
@@ -147,18 +146,14 @@ Proof. vm_compute. repeat split. Qed.
 
 Definition looping_fuel : nat := 1000.
 
-Lemma accepted_synth : forall S fuel t A,
-  snd (run_infer S ∅ fuel [] t) = Accepted A -> S ;; [] ⊢ t ⇑ A.
-Proof. intros S fuel t A H. exact (proj2 (run_infer_sound S ∅ fuel [] t A H)). Qed.
-
 Theorem looping0_typed : system_u_minus ;; [] ⊢ looping 0 ⇑ looping_ty.
-Proof. apply (accepted_synth _ looping_fuel). vm_compute. reflexivity. Qed.
+Proof. apply (accepted_synth _ _ looping_fuel). vm_compute. reflexivity. Qed.
 
 Theorem looping_typed : forall n, n <= 3 ->
   system_u_minus ;; [] ⊢ looping n ⇑ looping_ty.
 Proof.
   intros n Hn.
-  do 4 (destruct n as [|n]; [apply (accepted_synth _ looping_fuel); vm_compute; reflexivity | ]).
+  do 4 (destruct n as [|n]; [apply (accepted_synth _ _ looping_fuel); vm_compute; reflexivity | ]).
   exfalso. repeat apply le_S_n in Hn. inversion Hn.
 Qed.
 

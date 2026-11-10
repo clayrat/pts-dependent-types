@@ -12,7 +12,9 @@
     a hypothesis, and [tbind_step] rebuilds one.  Over a list, [titer]
     runs a step on every element in turn and [tfold] threads a value
     through the steps; every step of a successful [titer] succeeds
-    ([titer_Forall]).
+    ([titer_Forall]).  [titer2] runs a step on the pairs of two lists and
+    fails with a given error when their lengths differ; a successful run
+    pairs them all ([titer2_Forall2]).
 
     Ported from modules-system-fw (see PORTING.md). *)
 
@@ -46,7 +48,7 @@ Section Traced.
       end.
 
   Definition run_traced {A} (m : traced Ev E A) : list Ev * result E A :=
-    let (log, r) := m [] in (rev log, r).
+    let (log, r) := m [] in (rev' log, r).
 
   (** ** Successful runs *)
 
@@ -107,6 +109,26 @@ Section Lists.
     | [] => tret b
     | a :: l' => let! b' := f b a in tfold f b' l'
     end.
+
+  (** The elements of two lists in pairs, in order; lists of different
+      lengths fail with [e]. *)
+  Fixpoint titer2 {A B} (f : A -> B -> traced Ev E unit) (e : E) (l1 : list A) (l2 : list B)
+    {struct l2} : traced Ev E unit :=
+    match l1, l2 with
+    | [], [] => tret tt
+    | a :: l1', b :: l2' => let! _ := f a b in titer2 f e l1' l2'
+    | _, _ => tfail e
+    end.
+
+  Lemma titer2_Forall2 : forall {A B} (f : A -> B -> traced Ev E unit) e l1 l2 log log' u,
+    titer2 f e l1 l2 log = (log', Ok u) ->
+    Forall2 (fun a b => exists log1 log2 v, f a b log1 = (log2, Ok v)) l1 l2.
+  Proof.
+    intros A B f e l1. induction l1 as [|a l1 IH]; intros [|b l2] log log' u H; cbn in H;
+      try discriminate H; [constructor | ].
+    apply tbind_ok in H as (log1 & v & Hab & H).
+    constructor; [now exists log, log1, v | eapply IH; exact H].
+  Qed.
 
   Lemma titer_Forall : forall {A} (f : A -> traced Ev E unit) l log log' u,
     titer f l log = (log', Ok u) -> Forall (fun a => exists log1 log2 v, f a log1 = (log2, Ok v)) l.

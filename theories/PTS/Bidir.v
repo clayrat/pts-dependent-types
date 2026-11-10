@@ -11,7 +11,11 @@
     former, constructor or eliminator is accepted.  A pair, like a λ, only
     checks, against a type unfolding to a Σ; a projection synthesizes
     from the Σ its argument synthesizes; a constant synthesizes the closed
-    type the signature gives it, when the specification allows constants.  The declarative system types such terms without
+    type the signature gives it, when the specification allows constants.
+    A [match] synthesizes: its scrutinee synthesizes a type unfolding to
+    [D Δ ū], which gives the parameters and indices, and the motive and
+    the branches check against the types built from the description; a
+    guarded [fix] synthesizes its annotation.  The declarative system types such terms without
     annotations; it is reached from this kernel by soundness, and from
     unannotated terms only after annotations are inserted.
 
@@ -71,8 +75,9 @@
     obligations behind completeness. *)
 
 From Stdlib Require Import List Bool Arith Relations.
+From Stdlib Require String.
 Import ListNotations.
-From DepTypes.PTS Require Import Syntax Spec Signature Reduction NormalOrder.
+From DepTypes.PTS Require Import Syntax Spec Signature Reduction NormalOrder Guard.
 
 Reserved Notation "S ;; G ⊢ t ⇑ A" (at level 70, G at next level, t at next level).
 Reserved Notation "S ;; G ⊢ t ⇓ A" (at level 70, G at next level, t at next level).
@@ -150,6 +155,21 @@ Section Bidir.
   | S_Const : forall G g A,
       spec_decls S = true -> sig_type sg g = Some A ->
       synth G (Const g) A
+  (** match and fix *)
+  | S_Case : forall G D s P x bs X d ps us,
+      spec_decls S = true -> sig_ind sg D = Some d ->
+      allows_elimination S (ind_elim d) s = true ->
+      synth G x X -> X ⇝* apps (Const (Ind D)) (ps ++ us) ->
+      length ps = length (ind_params d) -> length us = length (ind_indices d) ->
+      chk G P (case_motive_type d ps s) ->
+      chk_branches G d ps P (ind_ctors d) bs ->
+      synth G (Case D s P x bs) (apps P (us ++ [x]))
+  | S_Fix : forall G A k b T s D,
+      synth G A T -> T ⇝* Srt s ->
+      struct_arg sg A k D -> sig_ind sg D <> None ->
+      chk (A :: G) b (lift 1 A) ->
+      fix_guarded sg k b ->
+      synth G (Fix A k b) A
 
   with chk : ctx -> term -> term -> Prop :=
   | C_Lam : forall G b T A B,
@@ -164,10 +184,19 @@ Section Bidir.
   | C_Synth : forall G t A B,
       synth G t A ->
       A ≡ B ->
-      chk G t B.
+      chk G t B
+
+  (** the branches of a match, one per constructor, in order *)
+  with chk_branches : ctx -> ind_desc -> list term -> term -> list ctor_desc -> list term -> Prop :=
+  | CB_Nil : forall G d ps P, chk_branches G d ps P [] []
+  | CB_Cons : forall G d ps P c cs b bs,
+      chk G b (case_branch_type d ps P c) ->
+      chk_branches G d ps P cs bs ->
+      chk_branches G d ps P (c :: cs) (b :: bs).
 
   Scheme synth_mut := Induction for synth Sort Prop
-    with chk_mut := Induction for chk Sort Prop.
+    with chk_mut := Induction for chk Sort Prop
+    with chk_branches_mut := Induction for chk_branches Sort Prop.
 End Bidir.
 
 Section Inputs.
@@ -205,7 +234,7 @@ Definition normalizing_types : Prop :=
 
 End Inputs.
 
-Combined Scheme synth_chk_mut from synth_mut, chk_mut.
+Combined Scheme synth_chk_mut from synth_mut, chk_mut, chk_branches_mut.
 
 Section Weaken.
   Variable S : spec.
@@ -218,16 +247,18 @@ Lemma lookup_app_lt : forall D G1 G2 n,
 Proof. intros D G1 G2 n H. unfold lookup. now rewrite !nth_error_app1 by exact H. Qed.
 
 Theorem bidir_weaken :
-  (forall G t A, S ;; G ⊢ t ⇑ A -> forall D G1 G2, G = D ++ G1 ->
-     closed_above (length D) t = true -> S ;; D ++ G2 ⊢ t ⇑ A) /\
-  (forall G t A, S ;; G ⊢ t ⇓ A -> forall D G1 G2, G = D ++ G1 ->
-     closed_above (length D) t = true -> S ;; D ++ G2 ⊢ t ⇓ A).
+  (forall G t A, S ;; G ⊢ t ⇑ A -> forall Dc G1 G2, G = Dc ++ G1 ->
+     closed_above (length Dc) t = true -> S ;; Dc ++ G2 ⊢ t ⇑ A) /\
+  (forall G t A, S ;; G ⊢ t ⇓ A -> forall Dc G1 G2, G = Dc ++ G1 ->
+     closed_above (length Dc) t = true -> S ;; Dc ++ G2 ⊢ t ⇓ A) /\
+  (forall G d ps P cs bs, chk_branches S sg G d ps P cs bs -> forall Dc G1 G2, G = Dc ++ G1 ->
+     forallb (closed_above (length Dc)) bs = true -> chk_branches S sg (Dc ++ G2) d ps P cs bs).
 Proof.
-  apply synth_chk_mut; intros; subst; cbn [closed_above] in *;
+  apply synth_chk_mut; intros; subst; cbn [closed_above forallb] in *;
     repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
     repeat match goal with
     | IH : forall D' G1' G2', ?Gx = D' ++ G1' -> _ -> _ |- _ =>
-        first [ specialize (IH D G1 G2 eq_refl) | specialize (IH (_ :: D) G1 G2 eq_refl) ]
+        first [ specialize (IH Dc G1 G2 eq_refl) | specialize (IH (_ :: Dc) G1 G2 eq_refl) ]
     end.
   (* variables: the lookup stays inside [D] *)
   all: try lazymatch goal with
@@ -243,7 +274,7 @@ Proof. intros G t A H Hc. exact (proj1 bidir_weaken _ _ _ H [] [] G eq_refl Hc).
 
 Corollary chk_closed : forall G t A,
   S ;; [] ⊢ t ⇓ A -> closed t = true -> S ;; G ⊢ t ⇓ A.
-Proof. intros G t A H Hc. exact (proj2 bidir_weaken _ _ _ H [] [] G eq_refl Hc). Qed.
+Proof. intros G t A H Hc. exact (proj1 (proj2 bidir_weaken) _ _ _ H [] [] G eq_refl Hc). Qed.
 End Weaken.
 
 (** The lemmas take their signature implicitly: it is fixed by their

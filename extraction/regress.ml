@@ -144,8 +144,9 @@ let () =
   expect "pair" (pp_term (Pair (BTrue, Tt))) "⟨true, tt⟩";
   expect "projections" (pp_term ~names:[ "p" ] (App (Fst (Var 0), Snd (Var 0)))) "fst p (snd p)";
   expect "constants"
-    (pp_term (App (App (Const (Elim ("Nat", 1)), Const (Ind "Nat")), Const (Ctor ("Nat", "zero")))))
+    (pp_term (App (App (Const (Elim ("Nat", Univ 1)), Const (Ind "Nat")), Const (Ctor ("Nat", "zero")))))
     "elimNat[1] Nat zero";
+  expect "eliminator into Prop" (pp_term (Const (Elim ("eq", Prp)))) "elimeq[Prop]";
   expect "dependent pair"
     (answer_unit (run_check predicative sig_empty 100 [] (Pair (BTrue, Tt)) (Sigma (Bool, Unit))))
     "accepted";
@@ -158,4 +159,50 @@ let () =
   expect "constants off"
     (answer_term [] (run_infer system_u_minus sig_empty 100 [] (Const (Ind "Nat"))))
     "rejected: Nat: constants are off in this system";
+  (* match and fix (CIC/Match.v). *)
+  let infer_in s sg g t = answer_term (in_ctx g) (run_infer s sg match_fuel (in_ctx g) (term_in g t)) in
+  expect "nat_rect" (pp_term (build [] (nat_rect 0))) "fix f : Πx:Nat → Type₀. x zero → (Πy:Nat. x y → x (succ y)) → Πy:Nat. x y {struct 3} := λx. λy. λz. λu. matchNat[0] u return (λv. x v) with y | λv. z v (f x y z v) end";
+  expect "nat_rect typed" (infer_in predicative sg_nat [] (nat_rect 1)) "accepted: Πx:Nat → Type₁. x zero → (Πy:Nat. x y → x (succ y)) → Πy:Nat. x y";
+  expect "append typed" (infer_in predicative sg_match [] append) "accepted: ΠA:Type₀. Πx:Nat. Πy:Nat. Vec A x → Vec A y → Vec A (plus x y)";
+  expect "copy typed" (infer_in predicative sg_families [] copy) "accepted: ΠA:Type₀. Πx:A → Type₀. W A x → W A x";
+  expect "plus computes"
+    (pp_eval_result (normalize sg_match match_fuel (build [] (napps plus [ nat_numeral 2; nat_numeral 3 ]))))
+    "normal form succ (succ (succ (succ (succ zero))))";
+  expect "open match"
+    (pp_eval_result ~names:(ctx_names (in_ctx (rect_ctx 0)))
+       (normalize sg_nat match_fuel (term_in (rect_ctx 0) open_match)))
+    "normal form matchNat[0] u return (λv. x v) with y | λv. z v ((fix f : Πw:Nat → Type₀. w zero → (Πx':Nat. w x' → w (succ x')) → Πx':Nat. w x' {struct 3} := λw. λx'. λy'. λz'. matchNat[0] z' return (λu'. w u') with x' | λu'. y' u' (f w x' y' u') end) x y z v) end";
+  expect "missing branch" (infer_in predicative sg_nat [] (rect_body [ NVar "z" ])) "rejected: matchNat[0] #0 return (λx. #3 x) with #2 end: 1 branches for 2 constructors";
+  expect "wrong motive" (infer_in predicative sg_nat [] wrong_motive) "rejected: #4 #0 has type Type₁, expected Type₀";
+  expect "motive into Type₀ on BoolP"
+    (infer_in predicative_prop sg_boolp [] (match_boolp (Univ 0) NBool NTrue NFalse)) "rejected: the category of elimination of BoolP does not allow motives in Type₀";
+  expect "structural position past the type"
+    (infer_in predicative sg_nat [] (NFix ("f", NArrow (NConst (Ind "Nat"), NConst (Ind "Nat")), 1,
+                                           NLam ("n", NLam ("m", NVar "m")))))
+    "rejected: fix f : Nat → Nat {struct 1} := λx. λy. y: no argument 1 in its type, Nat is not a Π-type";
+  expect "structural argument not inductive"
+    (infer_in predicative sg_nat [] (NFix ("f", NArrow (NBool, NBool), 0, NLam ("b", NVar "b"))))
+    "rejected: fix f : Bool → Bool {struct 0} := λx. x: its structural argument 0 has type Bool, not an inductive type";
+  expect "eval_src"
+    (pp_cbv_result (eval_src sg_match match_fuel (build [] (napps append [ NBool; nat_numeral 1; nat_numeral 1; one_true; one_false ]))))
+    "value cons Bool (succ zero) true (cons Bool zero false (nil Bool))";
+  expect "eval_src stuck"
+    (pp_cbv_result ~names:(ctx_names (in_ctx (rect_ctx 0)))
+       (eval_src sg_nat match_fuel (term_in (rect_ctx 0) open_match)))
+    "stuck at u";
+  (* The guard (CIC/GuardExamples.v). *)
+  let guard_result t = match guard_of sg_match t with Ok () -> "guarded" | Err e -> pp_guard_error e in
+  expect "half" (infer_in predicative sg_nat [] half) "accepted: Nat → Nat";
+  expect "half computes"
+    (pp_eval_result (normalize sg_nat match_fuel (build [] (NApp (half, nat_numeral 5)))))
+    "normal form succ (succ zero)";
+  expect "size on Tr" (guard_result size) "guarded";
+  expect "loop" (infer_in predicative sg_nat [] loop) "rejected: the guard refuses the call #1 #0: #0 is not a strict subterm of the structural argument";
+  expect "g (pred k)" (infer_in predicative sg_nat [] g_pred) "rejected: the guard refuses the call #2 (((λx. matchNat[0] x return (λy. Nat) with zero | λy. y end) : Nat → Nat) #0): ((λx. matchNat[0] x return (λy. Nat) with zero | λy. y end) : Nat → Nat) #0 is not a strict subterm of the structural argument";
+  expect "partial call" (infer_in predicative sg_nat [] partial) "rejected: the guard refuses the partial call #3 #2: the structural argument is missing";
+  expect "bare function" (infer_in predicative sg_nat [] bare) "rejected: the guard refuses the partial call #2: the structural argument is missing";
+  expect "nested call" (infer_in predicative sg_nat [] nested) "rejected: the guard refuses the call #3 #2 #1: #2 is not a strict subterm of the structural argument";
+  expect "non-recursive field" (guard_result nonrec_field) "the call #5 #2 #1: #1 is not a strict subterm of the structural argument";
+  expect "one of two positions" (guard_result half_position) "the call #6 #5 #4 #1 (#0 #1): #0 #1 is not a strict subterm of the structural argument";
+  expect "guard event" (pp_event (EvGuard 3)) "  guard: every recursive call is on a strict subterm of argument 3";
   if !failures > 0 then exit 1 else print_endline "regress: all tests passed"

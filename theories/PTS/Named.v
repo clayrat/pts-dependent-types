@@ -13,6 +13,10 @@
     way into a Σ.  A constant [NConst g] is not a name: it refers to the
     signature, not to the context.
 
+    [NCase D s P x bs] is a match, with the motive and the branches
+    written as named λ like any other term; [NFix f A k b] binds the
+    name [f] of the function in its body [b].
+
     The builder is a convenience: it is not verified, and a term it
     produces is trusted only after the checker accepts it.
 
@@ -48,7 +52,76 @@ Inductive nterm : Type :=
 | NPair : nterm -> nterm -> nterm
 | NFst : nterm -> nterm
 | NSnd : nterm -> nterm
-| NConst : gref -> nterm.
+| NConst : gref -> nterm
+| NCase : string -> sort -> nterm -> nterm -> list nterm -> nterm
+| NFix : string -> nterm -> nat -> nterm -> nterm.
+
+(** Induction with the branches of a match, as [term_ind'] of
+    PTS.Syntax. *)
+Section NTermInd.
+  Variable P : nterm -> Prop.
+  Hypothesis HSrt : forall s, P (NSrt s).
+  Hypothesis HVar : forall x, P (NVar x).
+  Hypothesis HPi : forall x t1, P t1 -> forall t2, P t2 -> P (NPi x t1 t2).
+  Hypothesis HArrow : forall t1, P t1 -> forall t2, P t2 -> P (NArrow t1 t2).
+  Hypothesis HLam : forall x t, P t -> P (NLam x t).
+  Hypothesis HApp : forall t1, P t1 -> forall t2, P t2 -> P (NApp t1 t2).
+  Hypothesis HAnn : forall t1, P t1 -> forall t2, P t2 -> P (NAnn t1 t2).
+  Hypothesis HVoid : P NVoid.
+  Hypothesis HElimVoid : forall t1, P t1 -> forall t2, P t2 -> P (NElimVoid t1 t2).
+  Hypothesis HUnit : P NUnit.
+  Hypothesis HTt : P NTt.
+  Hypothesis HElimUnit : forall t1, P t1 -> forall t2, P t2 -> forall t3, P t3 -> P (NElimUnit t1 t2 t3).
+  Hypothesis HBool : P NBool.
+  Hypothesis HTrue : P NTrue.
+  Hypothesis HFalse : P NFalse.
+  Hypothesis HElimBool : forall t1, P t1 -> forall t2, P t2 -> forall t3, P t3 -> forall t4, P t4 ->
+    P (NElimBool t1 t2 t3 t4).
+  Hypothesis HSigma : forall x t1, P t1 -> forall t2, P t2 -> P (NSigma x t1 t2).
+  Hypothesis HTimes : forall t1, P t1 -> forall t2, P t2 -> P (NTimes t1 t2).
+  Hypothesis HPair : forall t1, P t1 -> forall t2, P t2 -> P (NPair t1 t2).
+  Hypothesis HFst : forall t, P t -> P (NFst t).
+  Hypothesis HSnd : forall t, P t -> P (NSnd t).
+  Hypothesis HConst : forall g, P (NConst g).
+  Hypothesis HCase : forall D s t1, P t1 -> forall t2, P t2 -> forall l (IHl : Forall P l),
+    P (NCase D s t1 t2 l).
+  Hypothesis HFix : forall f t1, P t1 -> forall n t2, P t2 -> P (NFix f t1 n t2).
+
+  Fixpoint nterm_ind' (t : nterm) : P t :=
+    match t with
+    | NSrt s => HSrt s
+    | NVar x => HVar x
+    | NPi x A B => HPi x A (nterm_ind' A) B (nterm_ind' B)
+    | NArrow A B => HArrow A (nterm_ind' A) B (nterm_ind' B)
+    | NLam x b => HLam x b (nterm_ind' b)
+    | NApp f a => HApp f (nterm_ind' f) a (nterm_ind' a)
+    | NAnn u A => HAnn u (nterm_ind' u) A (nterm_ind' A)
+    | NVoid => HVoid
+    | NElimVoid C e => HElimVoid C (nterm_ind' C) e (nterm_ind' e)
+    | NUnit => HUnit
+    | NTt => HTt
+    | NElimUnit C c u => HElimUnit C (nterm_ind' C) c (nterm_ind' c) u (nterm_ind' u)
+    | NBool => HBool
+    | NTrue => HTrue
+    | NFalse => HFalse
+    | NElimBool C bt bf b =>
+        HElimBool C (nterm_ind' C) bt (nterm_ind' bt) bf (nterm_ind' bf) b (nterm_ind' b)
+    | NSigma x A B => HSigma x A (nterm_ind' A) B (nterm_ind' B)
+    | NTimes A B => HTimes A (nterm_ind' A) B (nterm_ind' B)
+    | NPair a b => HPair a (nterm_ind' a) b (nterm_ind' b)
+    | NFst p => HFst p (nterm_ind' p)
+    | NSnd p => HSnd p (nterm_ind' p)
+    | NConst g => HConst g
+    | NCase D s M x bs =>
+        HCase D s M (nterm_ind' M) x (nterm_ind' x) bs
+          ((fix all (bs : list nterm) : Forall P bs :=
+              match bs with
+              | [] => Forall_nil P
+              | b :: bs' => Forall_cons b (nterm_ind' b) (all bs')
+              end) bs)
+    | NFix f A k b => HFix f A (nterm_ind' A) k b (nterm_ind' b)
+    end.
+End NTermInd.
 
 (** The index of the nearest binder named [x]. *)
 Fixpoint index_of (x : string) (names : list string) : option nat :=
@@ -120,6 +193,15 @@ Fixpoint resolve (names : list string) (t : nterm) : result string term :=
   | NFst p => let* p' := resolve names p in Ok (Fst p')
   | NSnd p => let* p' := resolve names p in Ok (Snd p')
   | NConst g => Ok (Const g)
+  | NCase D s P x bs =>
+      let* P' := resolve names P in
+      let* x' := resolve names x in
+      let* bs' := mapM (resolve names) bs in
+      Ok (Case D s P' x' bs')
+  | NFix f A k b =>
+      let* A' := resolve names A in
+      let* b' := resolve (f :: names) b in
+      Ok (Fix A' k b')
   end.
 
 (** A named context, innermost entry first: each type is resolved in the
@@ -171,7 +253,18 @@ Ltac resolve_inv H :=
 Lemma resolve_weaken : forall t bs ns t',
   resolve bs t = Ok t' -> resolve (bs ++ ns) t = Ok t'.
 Proof.
-  induction t; intros bs ns t' H.
+  induction t using nterm_ind'; intros bs ns t' H.
+  (* the branches of a match *)
+  all: try lazymatch goal with
+       | IHl : Forall _ ?l |- resolve _ (NCase _ _ _ _ ?l) = _ =>
+           cbn [resolve] in H |- *; resolve_inv H;
+           apply mapM_ok in Hr1;
+           rewrite (IHt1 _ _ _ Hr), (IHt2 _ _ _ Hr0); cbn [bind];
+           replace (mapM (resolve (bs ++ ns)) l) with (Ok r1 : result string (list term));
+           [exact H | ];
+           clear - IHl Hr1; induction Hr1 as [|a b l l' Ha _ IH]; [reflexivity | ];
+           inversion IHl; subst; cbn; rewrite (H1 _ _ _ Ha); cbn; rewrite <- IH by assumption; reflexivity
+       end.
   (* a variable: its nearest binder lies among [bs] *)
   all: try lazymatch goal with
        | H : resolve _ (NVar ?x) = _ |- _ =>
@@ -193,7 +286,16 @@ Proof. intros t t' ns H. exact (resolve_weaken t [] ns t' H). Qed.
 Lemma resolve_closed_above : forall t names t',
   resolve names t = Ok t' -> closed_above (length names) t' = true.
 Proof.
-  induction t; intros names t' H.
+  induction t using nterm_ind'; intros names t' H.
+  (* the branches of a match *)
+  all: try lazymatch goal with
+       | IHl : Forall _ ?l |- _ =>
+           cbn [resolve] in H; resolve_inv H; injection H as <-;
+           apply mapM_ok in Hr1; cbn [closed_above];
+           rewrite (IHt1 _ _ Hr), (IHt2 _ _ Hr0); cbn;
+           clear - IHl Hr1; induction Hr1 as [|a b l l' Ha _ IH]; [reflexivity | ];
+           inversion IHl; subst; cbn; rewrite (H1 _ _ Ha); cbn; apply IH; assumption
+       end.
   (* a variable: its index is below the number of names *)
   all: try lazymatch goal with
        | H : resolve _ (NVar ?x) = _ |- _ =>
@@ -223,6 +325,9 @@ Bind Scope nterm_scope with nterm.
 
 Coercion NVar : string >-> nterm.
 Definition napp (f : nterm) : nterm -> nterm := NApp f.
+
+(** [h a₁ … aₙ], as [apps] of PTS.Syntax for named terms. *)
+Definition napps (h : nterm) (args : list nterm) : nterm := fold_left NApp args h.
 Coercion napp : nterm >-> Funclass.
 
 Notation "'λ' x , b" := (NLam x b)

@@ -11,6 +11,7 @@ module El = Eliminators
 module Pa = Pairs
 module Co = Constants
 module Fa = Families
+module Ma = Matches
 
 open Extracted
 
@@ -53,6 +54,25 @@ let check_infer ?(sg = empty) name xspec nspec fuel gamma term =
   let native = List.map event_to_extracted events, answer_to_extracted term_to_extracted result in
   equal name native (X.run_infer xspec xsg fuel gamma term)
 
+(* [infer] alone, in a context taken as checked: [run_infer_open] of the
+   reference, which erasure-cic uses, against [run_answer (infer …)]. *)
+let check_infer_open ?(sg = empty) name xspec nspec fuel gamma term =
+  let nsg, xsg = sg in
+  let ngamma = List.map term_of_extracted gamma in
+  let nterm = term_of_extracted term in
+  let events, result = N.run_infer_open ~sg:nsg nspec fuel ngamma nterm in
+  let native = List.map event_to_extracted events, answer_to_extracted term_to_extracted result in
+  equal name native (X.run_answer (X.infer xspec xsg fuel gamma term))
+
+(* eval_src of the reference against the extract, on a native term and the
+   extracted one, at several budgets. *)
+let check_eval_src ?(sg = empty) ~fuels name native term =
+  let nsg, xsg = sg in
+  List.iter (fun fuel ->
+    equal (Printf.sprintf "%s/%d" name fuel)
+      (cbv_to_extracted (N.eval_src ~sg:nsg fuel native)) (X.eval_src xsg fuel term))
+    fuels
+
 let check_check ?(sg = empty) name xspec nspec fuel gamma term expected =
   let nsg, xsg = sg in
   let ngamma = List.map term_of_extracted gamma in
@@ -76,12 +96,12 @@ let check_eval ?native ?(sg = empty) ?(fuels = [0; 1; 2; 5]) name term =
     equal (Printf.sprintf "%s/whnf/%d" name fuel)
       (head_to_extracted (N.whnf ~sg:nsg fuel native)) (X.whnf xsg fuel term)) fuels
 
-let convert_case ?(sg = empty) name t u =
+let convert_case ?(sg = empty) ?(fuels = [0; 1; 2; 5]) name t u =
   let nsg, xsg = sg in
   let nt = term_of_extracted t and nu = term_of_extracted u in
   List.iter (fun fuel ->
     equal (Printf.sprintf "%s/conv/%d" name fuel)
-      (conv_to_extracted (N.convert ~sg:nsg fuel nt nu)) (X.convert xsg fuel t u)) [0; 1; 2; 5]
+      (conv_to_extracted (N.convert ~sg:nsg fuel nt nu)) (X.convert xsg fuel t u)) fuels
 
 let () =
   let open X in
@@ -111,6 +131,15 @@ let () =
     "snd stuck", Snd Tt; "pair step", Pair (Ann (Tt, Unit), Var 0);
     "sum step", Sigma (Ann (Bool, Srt (Univ 0)), Ann (Unit, Srt (Univ 0)));
     "constant", Const (Def "f");
+    "fix", Fix (Pi (Bool, Bool), 0, Lam (Var 0));
+    "fix step", Fix (Ann (Pi (Bool, Bool), Srt (Univ 0)), 0, Lam (Ann (Var 0, Bool)));
+    "fix on a variable", App (Fix (Pi (Bool, Bool), 0, Lam (Var 0)), Var 0);
+    "fix on a pair", App (Fix (Pi (Bool, Bool), 0, Lam (Var 0)), Pair (Tt, Tt));
+    "match on a variable", Case ("Nat", Univ 0, Lam Bool, Var 0, [BTrue; Lam BFalse]);
+    "match step", Case ("Nat", Univ 0, Ann (Lam Bool, Pi (Bool, Srt (Univ 0))), Var 0,
+                         [Ann (BTrue, Bool); Lam BFalse]);
+    "match on a λ", Case ("Nat", Univ 0, Lam Bool, Lam (Var 0), [BTrue]);
+    "match without branches", Case ("Void", Prp, Lam Bool, Var 0, []);
   ] in
   List.iter (fun (name, term) -> check_eval name term) samples;
   List.iter (fun (name, term) ->
@@ -126,8 +155,10 @@ let () =
     "lambda-star", lambda_star, N.lambda_star;
     "predicative", predicative, N.predicative;
     "pure-predicative", pure_predicative, N.pure_predicative;
+    "coc", coc, N.coc;
+    "predicative-prop", predicative_prop, N.predicative_prop;
   ] in
-  let sorts = [Star; Box; Tri; Univ 0; Univ 1; Univ 2] in
+  let sorts = [Star; Box; Tri; Univ 0; Univ 1; Univ 2; Prp] in
   List.iter (fun (name, extracted, native) ->
     equal (name ^ "/primitives")
       (Option.map sort_to_extracted native.N.primitive_sort) extracted.spec_prim;
@@ -135,6 +166,10 @@ let () =
     List.iter (fun s ->
       let ns = sort_of_extracted s in
       equal (name ^ "/sort") (native.N.sort_allowed ns) (extracted.spec_sort s);
+      List.iter (fun (cls, ncls) ->
+        equal (name ^ "/allows elimination")
+          (N.allows_elimination native ncls ns) (allows_elimination extracted cls s))
+        (List.map (fun c -> (elim_class_to_extracted c, c)) [N.PropOnly; N.AllSorts]);
       equal (name ^ "/axiom")
         (Option.map sort_to_extracted (native.N.axiom ns)) (extracted.spec_axiom s);
       List.iter (fun t ->
@@ -156,6 +191,10 @@ let () =
       check_infer (system ^ "/open-context/" ^ string_of_int fuel)
         extracted native fuel id_applied_ctx id_applied;
       check_infer (system ^ "/bad-context/" ^ string_of_int fuel)
+        extracted native fuel [BTrue] (Var 0);
+      check_infer_open (system ^ "/open-context/infer-open/" ^ string_of_int fuel)
+        extracted native fuel id_applied_ctx id_applied;
+      check_infer_open (system ^ "/bad-context/infer-open/" ^ string_of_int fuel)
         extracted native fuel [BTrue] (Var 0)) [0; 1; 5; 100]) specs;
   check_check "wrong branch" predicative N.predicative 100 []
     (ElimBool (type_family, Unit, Tt, BTrue)) (Srt (Univ 0));
@@ -264,11 +303,11 @@ let () =
   equal "choose/open ctx" (List.map term_to_extracted (C.in_ctx C.open_ctx)) (in_x open_ctx);
   let runs = [
     "choose", C.types_ctx, C.choose, C.choose_ty, types_ctx, choose, choose_ty;
-    "choose true", C.args_ctx, C.choose_at (Looping.Const N.BTrue), Looping.name "A",
+    "choose true", C.args_ctx, C.choose_at (Named.Const N.BTrue), Named.name "A",
       args_ctx, choose_at NTrue, NVar "A";
-    "choose false", C.args_ctx, C.choose_at (Looping.Const N.BFalse), Looping.name "B",
+    "choose false", C.args_ctx, C.choose_at (Named.Const N.BFalse), Named.name "B",
       args_ctx, choose_at NFalse, NVar "B";
-    "choose open", C.open_ctx, C.choose_at (Looping.name "b"), Looping.name "A",
+    "choose open", C.open_ctx, C.choose_at (Named.name "b"), Named.name "A",
       open_ctx, choose_at (NVar "b"), NVar "A";
     "choose swapped", C.types_ctx, C.choose_swapped, C.choose_ty, types_ctx, choose_swapped, choose_ty;
   ] in
@@ -285,11 +324,11 @@ let () =
   check_infer "choose/low family" predicative N.predicative choose_fuel [] (X.build [] low_family);
   (* Void and Unit: the same terms, checker traces and normal forms. *)
   let elim_runs = [
-    "void", El.void_ctx, El.void_elim, Looping.name "A", void_ctx, void_elim, NVar "A";
-    "void wrong scrutinee", El.void_ctx, Looping.ElimVoid (El.void_family, Looping.Const N.Tt),
-      Looping.name "A", void_ctx, NElimVoid (void_family, NTt), NVar "A";
-    "unit tt", [], El.unit_elim (Looping.Const N.Tt), Looping.Const N.Bool, [], unit_elim NTt, NBool;
-    "unit open", El.unit_ctx, El.unit_elim (Looping.name "u"), Looping.Const N.Bool,
+    "void", El.void_ctx, El.void_elim, Named.name "A", void_ctx, void_elim, NVar "A";
+    "void wrong scrutinee", El.void_ctx, Named.ElimVoid (El.void_family, Named.Const N.Tt),
+      Named.name "A", void_ctx, NElimVoid (void_family, NTt), NVar "A";
+    "unit tt", [], El.unit_elim (Named.Const N.Tt), Named.Const N.Bool, [], unit_elim NTt, NBool;
+    "unit open", El.unit_ctx, El.unit_elim (Named.name "u"), Named.Const N.Bool,
       unit_ctx, unit_elim (NVar "u"), NBool;
   ] in
   List.iter (fun (name, ng, nt, na, g, t, a) ->
@@ -303,7 +342,7 @@ let () =
       (eval_to_extracted (N.normalize elim_fuel (C.term_in ng nt)))
       (X.normalize X.sig_empty elim_fuel (term_x g t))) elim_runs;
   (* Dependent pairs: the same terms, checker traces and normal forms. *)
-  let build = Looping.build [] in
+  let build = Named.build [] in
   equal "pairs/is true" (term_to_extracted (build Pa.is_true)) (X.build [] is_true);
   equal "pairs/sigma ctx" (List.map term_to_extracted Pa.sigma_ctx) sigma_ctx;
   List.iter (fun (name, nt, na, t, a) ->
@@ -336,9 +375,9 @@ let () =
     equal ("constants/sig add/" ^ name)
       (Option.map (List.map entry_to_extracted) (N.sig_add nsg_base entry))
       (X.sig_add sg_nat_base (entry_to_extracted entry))) [
-    "double", N.EDef ("double", build (Looping.arrow Co.nat Co.nat), build Co.double_body);
+    "double", N.EDef ("double", build (Named.arrow Co.nat Co.nat), build Co.double_body);
     "open", N.EDef ("bad", N.Var 0, N.Tt);
-    "open elim", N.EElim ("Nat", 1, N.Pi (N.Var 0, N.Var 1), true);
+    "open elim", N.EElim ("Nat", N.Univ 1, N.Pi (N.Var 0, N.Var 1), true);
   ];
   equal "constants/signature" (List.map entry_to_extracted nsg) sg_nat;
   equal "constants/inactive" (List.map entry_to_extracted nsg_off) sg_nat_inactive;
@@ -350,9 +389,9 @@ let () =
     equal "constants/sig type"
       (Option.map term_to_extracted (N.sig_type nsg (gref_of_extracted g))) (X.sig_type sg_nat g))
     [Ind "Nat"; Ctor ("Nat", "zero"); Ctor ("Nat", "succ"); Ctor ("Nat", "pred");
-     Elim ("Nat", 0); Elim ("Nat", 1); Def "double"; Ind "Bool2"];
+     Elim ("Nat", Univ 0); Elim ("Nat", Univ 1); Elim ("Nat", Prp); Def "double"; Ind "Bool2"];
   let nat = build Co.nat in
-  let step_r = Looping.abs ["m"; "r"] (Looping.name "r") in
+  let step_r = Named.abs ["m"; "r"] (Named.name "r") in
   List.iter (fun (name, t, a) ->
     let t = term_to_extracted (build t) and a = term_to_extracted (build a) in
     List.iter (fun (which, sg) ->
@@ -365,28 +404,37 @@ let () =
     check_check ("constants/empty/" ^ name) predicative N.predicative const_fuel [] t a) [
     "two", Co.succ (Co.succ Co.zero), Co.nat;
     "elimNat", Co.elim_nat, Co.elim_nat_ty;
-    "double body", Co.double_body, Looping.arrow Co.nat Co.nat;
+    "double body", Co.double_body, Named.arrow Co.nat Co.nat;
     "double one", Co.double (Co.succ Co.zero), Co.nat;
     "object first", Co.elim_with step_r (Co.double Co.zero), Co.nat;
-    "unit at Nat", Looping.Const N.Tt, Co.nat;
+    "unit at Nat", Named.Const N.Tt, Co.nat;
   ];
+  (* eval_src on the spines of elimNat, from the bare instance to its full
+     arity: short of it a value with active rules, stuck without them. *)
+  List.iter (fun n ->
+    let args = List.filteri (fun i _ -> i < n) [Named.abs ["_"] Co.nat; Co.zero; step_r; Co.zero] in
+    let nt = build (Named.call Co.elim_nat args) in
+    List.iter (fun (which, sg) ->
+      check_eval_src ~sg ~fuels:[1; 5; const_fuel] (Printf.sprintf "constants/eval_src/%s/%d args" which n)
+        nt (term_to_extracted nt))
+      ["active", active; "inactive", inactive]) [0; 1; 2; 3; 4];
   (* The body of [double] in the signature without [double], and a body
      mentioning [double] there. *)
-  let base = (nsg_base, sg_nat_base) and nat_to_nat = term_to_extracted (build (Looping.arrow Co.nat Co.nat)) in
+  let base = (nsg_base, sg_nat_base) and nat_to_nat = term_to_extracted (build (Named.arrow Co.nat Co.nat)) in
   check_check ~sg:base "constants/base/double body" predicative N.predicative const_fuel []
     (term_to_extracted (build Co.double_body)) nat_to_nat;
   check_check ~sg:base "constants/base/self reference" predicative N.predicative const_fuel []
-    (term_to_extracted (build (Looping.abs ["n"] (Co.double (Looping.name "n"))))) nat_to_nat;
-  let open_spine = App (term_to_extracted (build (Looping.call Co.elim_nat
+    (term_to_extracted (build (Named.abs ["n"] (Co.double (Named.name "n"))))) nat_to_nat;
+  let open_spine = App (term_to_extracted (build (Named.call Co.elim_nat
                                                 [Co.const_nat; Co.zero; step_r])), Var 0) in
   check_infer ~sg:active "constants/open spine" predicative N.predicative const_fuel
     [term_to_extracted nat] open_spine;
   check_eval ~sg:active ~fuels:[0; 1; 5; const_fuel] "constants/open spine" open_spine;
   let in_iota t = term_to_extracted (C.term_in Co.iota_ctx t) in
-  let n = Looping.name in
-  let iota_lhs = in_iota (Looping.call Co.elim_nat [n "P"; n "z"; n "s"; Co.succ (n "n")]) in
+  let n = Named.name in
+  let iota_lhs = in_iota (Named.call Co.elim_nat [n "P"; n "z"; n "s"; Co.succ (n "n")]) in
   let iota_rhs =
-    in_iota (Looping.call (n "s") [n "n"; Looping.call Co.elim_nat [n "P"; n "z"; n "s"; n "n"]]) in
+    in_iota (Named.call (n "s") [n "n"; Named.call Co.elim_nat [n "P"; n "z"; n "s"; n "n"]]) in
   equal "constants/iota" (Option.map term_to_extracted (N.iota nsg (term_of_extracted iota_lhs)))
     (X.iota sg_nat iota_lhs);
   List.iter (fun (which, sg) ->
@@ -411,9 +459,9 @@ let () =
   List.iter (fun g ->
     equal "families/sig type"
       (Option.map term_to_extracted (N.sig_type nfam (gref_of_extracted g))) (X.sig_type sg_families g))
-    [Ind "Vec"; Ctor ("Vec", "nil"); Ctor ("Vec", "cons"); Elim ("Vec", 0);
-     Ind "W"; Ctor ("W", "sup"); Elim ("W", 0);
-     Ind "Tr"; Ctor ("Tr", "leaf"); Ctor ("Tr", "node"); Ctor ("Tr", "fork"); Ctor ("Tr", "twin"); Elim ("Tr", 0)];
+    [Ind "Vec"; Ctor ("Vec", "nil"); Ctor ("Vec", "cons"); Elim ("Vec", Univ 0);
+     Ind "W"; Ctor ("W", "sup"); Elim ("W", Univ 0);
+     Ind "Tr"; Ctor ("Tr", "leaf"); Ctor ("Tr", "node"); Ctor ("Tr", "fork"); Ctor ("Tr", "twin"); Elim ("Tr", Univ 0)];
   List.iter (fun (name, ng, lhs, rhs, ty) ->
     let lhs = C.term_in ng lhs and rhs = C.term_in ng rhs and ty = C.term_in ng ty in
     equal ("families/iota is rhs/" ^ name) (N.iota nfam lhs) (Some rhs);
@@ -428,8 +476,8 @@ let () =
     check_check ~sg:fam ("families/wrong side/" ^ name) predicative N.predicative family_fuel
       (List.map term_to_extracted (C.in_ctx ng)) (term_to_extracted (C.term_in ng rhs))
       (term_to_extracted (C.term_in ng
-         (Looping.call (Looping.name "P") [Looping.name "a";
-            ctor (Looping.name "A") (Looping.name "h") (Looping.name "a") (Looping.name "f")]))))
+         (Named.call (Named.name "P") [Named.name "a";
+            ctor (Named.name "A") (Named.name "h") (Named.name "a") (Named.name "f")]))))
     ["swapped index", Fa.tr_rule_ctx, Fa.swapped_node, Fa.node;
      "swapped positions", Fa.tr_fork_ctx, Fa.swapped_fork, Fa.fork];
   List.iter (fun (name, nt, xt) ->
@@ -445,11 +493,185 @@ let () =
     let t = term_to_extracted (build t) and a = term_to_extracted (build a) in
     check_check ~sg:fam ("families/closed check/" ^ name) predicative N.predicative family_fuel [] t a;
     check_eval ~sg:fam ~fuels:[0; 1; 5; family_fuel] ("families/closed eval/" ^ name) t) [
-    "vnot", Looping.call Fa.vnot [Co.succ (Co.succ Co.zero); Fa.two_bools],
+    "vnot", Named.call Fa.vnot [Co.succ (Co.succ Co.zero); Fa.two_bools],
       Fa.vec Fa.bool (Co.succ (Co.succ Co.zero));
-    "to_nat", Looping.Apply (Fa.to_nat, Fa.succ_w (Fa.succ_w Fa.zero_w)), Co.nat;
-    "label", Looping.call Fa.label [Looping.Const N.BTrue; Fa.tree], Fa.bool;
-    "fork label", Looping.call Fa.label [Looping.Const N.BFalse; Fa.fork_tree], Fa.bool;
-    "twin label", Looping.call Fa.label [Looping.Const N.BTrue; Fa.twin_tree], Fa.bool;
+    "to_nat", Named.Apply (Fa.to_nat, Fa.succ_w (Fa.succ_w Fa.zero_w)), Co.nat;
+    "label", Named.call Fa.label [Named.Const N.BTrue; Fa.tree], Fa.bool;
+    "fork label", Named.call Fa.label [Named.Const N.BFalse; Fa.fork_tree], Fa.bool;
+    "twin label", Named.call Fa.label [Named.Const N.BTrue; Fa.twin_tree], Fa.bool;
   ];
+  (* match and fix: the same terms built independently, the same checker
+     traces, normal-order and call-by-value results. *)
+  let nmatch = Ma.signature and nboolp = Ma.boolp_signature in
+  let mat = (nmatch, sg_match) and nat_sg = (nsg, sg_nat) and boolp = (nboolp, sg_boolp) in
+  equal "match/signature" (List.map entry_to_extracted nmatch) sg_match;
+  equal "match/boolp" (List.map entry_to_extracted nboolp) sg_boolp;
+  List.iter (fun j ->
+    equal ("match/rect ctx/" ^ string_of_int j)
+      (List.map term_to_extracted (C.in_ctx (Ma.rect_ctx j))) (in_x (X.rect_ctx j))) [0; 1];
+  let closed_terms = [
+    "nat_rect 0", Ma.nat_rect 0, nat_rect 0;
+    "nat_rect 1", Ma.nat_rect 1, nat_rect 1;
+    "plus", Ma.plus_fix, plus_fix;
+    "append", Ma.append, append;
+    "copy", Ma.copy, copy;
+    "missing branch", Ma.rect_with 0 [Named.name "z"], rect_body [NVar "z"];
+    "repeated branch", Ma.rect_with 0 [Named.name "z"; Ma.succ_branch; Ma.succ_branch],
+      rect_body [NVar "z"; succ_branch; succ_branch];
+    "wrong motive", Ma.wrong_motive, wrong_motive;
+    "loop", Ma.loop, loop;
+    "struct past", Fixpoint ("f", Named.arrow Co.nat Co.nat, 1, Named.abs ["n"; "m"] (Named.name "m")),
+      NFix ("f", NArrow (NConst (Ind "Nat"), NConst (Ind "Nat")), 1, NLam ("n", NLam ("m", NVar "m")));
+    "struct bool", Fixpoint ("f", Named.arrow Fa.bool Fa.bool, 0, Named.abs ["b"] (Named.name "b")),
+      NFix ("f", NArrow (NBool, NBool), 0, NLam ("b", NVar "b"));
+    "short body", Fixpoint ("f", Named.arrow Co.nat Co.nat, 0, Named.name "f"),
+      NFix ("f", NArrow (NConst (Ind "Nat"), NConst (Ind "Nat")), 0, NVar "f");
+    "wrong scrutinee", Match ("Nat", N.Univ 0, Named.abs ["m"] Co.nat, Named.Const N.BTrue,
+                              [Co.zero; Named.abs ["m"] (Named.name "m")]),
+      NCase ("Nat", Univ 0, NLam ("m", NConst (Ind "Nat")), NTrue,
+             [NConst (Ctor ("Nat", "zero")); NLam ("m", NVar "m")]);
+  ] in
+  List.iter (fun (name, nt, xt) ->
+    let t = X.build [] xt in
+    equal ("match/term/" ^ name) (term_to_extracted (build nt)) t;
+    List.iter (fun (which, sg) ->
+      check_infer ~sg ("match/infer/" ^ which ^ "/" ^ name) predicative N.predicative match_fuel [] t;
+      check_infer ~sg ("match/infer prop/" ^ which ^ "/" ^ name) predicative_prop N.predicative_prop
+        match_fuel [] t;
+      check_eval ~sg ~fuels:[0; 1; 5] ("match/eval/" ^ which ^ "/" ^ name) t)
+      ["nat", nat_sg; "match", mat; "families", fam]) closed_terms;
+  List.iter (fun (name, nt, xt) ->
+    let t = X.build [] xt in
+    equal ("match/closed term/" ^ name) (term_to_extracted (build nt)) t;
+    check_eval ~sg:mat ~fuels:[0; 1; 5; match_fuel] ("match/closed eval/" ^ name) t;
+    check_eval_src ~sg:mat ~fuels:[0; 1; 3; 10; match_fuel] ("match/eval_src/" ^ name) (build nt) t) [
+    "plus 2 3", Ma.plus (Ma.nat_numeral 2) (Ma.nat_numeral 3), NApp (NApp (plus, nat_numeral 2), nat_numeral 3);
+    "append", Named.call Ma.append [Fa.bool; Ma.nat_numeral 1; Ma.nat_numeral 1; Ma.one_true; Ma.one_false],
+      NApp (NApp (NApp (NApp (NApp (append, NBool), nat_numeral 1), nat_numeral 1), one_true), one_false);
+    "copy", Named.Apply (Fa.to_nat, Named.call Ma.copy [Fa.bool; Fa.positions; Fa.succ_w (Fa.succ_w Fa.zero_w)]),
+      NApp (to_nat, NApp (NApp (NApp (copy, NBool), positions), succ_w (succ_w zero_w)));
+    "loop zero", Named.Apply (Ma.loop, Co.zero), NApp (loop, NConst (Ctor ("Nat", "zero")));
+  ];
+  (* Lazy δ with m, k as Var 0, Var 1: a folded spine shared by both
+     sides, one unfolding, two disjoint ones, a difference after an
+     unfolding, and nested spines where the inner one is unfolded, the
+     outer one is, or the inner one does not help.  The unfoldings need
+     more fuel than the default. *)
+  let xplus a b = App (App (Const (Def "plus"), a), b) and xsucc a = App (Const (Ctor ("Nat", "succ")), a) in
+  let m = Var 0 and k = Var 1 in
+  List.iter (fun (name, t, u) -> convert_case ~sg:mat ~fuels:[0; 5; match_fuel] ("match/lazy/" ^ name) t u) [
+    "shared spine", Pair (xplus k m, Bool), Pair (xplus k m, Unit);
+    "one unfolding", xplus (xsucc k) m, xsucc (xplus k m);
+    "two unfoldings", Pair (xplus (xsucc k) m, xplus (xsucc m) k), Pair (xsucc (xplus k m), xsucc (xplus m k));
+    "difference after", Pair (xplus (xsucc k) m, Bool), Pair (xsucc (xplus k m), Unit);
+    "inner unfolded", xplus (xplus (xsucc k) m) k, xplus (xsucc (xplus k m)) k;
+    "outer unfolded", xplus (xsucc (xplus k m)) m, xsucc (xplus (xplus k m) m);
+    "inner differs", xplus (xplus k m) k, xplus (xplus m k) k;
+    "outer differs after", xplus (xplus (xsucc k) m) k, xplus (xsucc (xplus k m)) m;
+  ];
+  (* Open terms: the equations of nat_rect, neutral matches and fixes. *)
+  List.iter (fun j ->
+    let g = Ma.rect_ctx j and xg = X.rect_ctx j in
+    let n = Named.name in
+    let rect args = Named.call (Ma.nat_rect j) args and xrect args = X.napps (nat_rect j) args in
+    let pzs = [n "P"; n "z"; n "s"] and xpzs = [NVar "P"; NVar "z"; NVar "s"] in
+    List.iter (fun (name, lhs, rhs, xlhs, xrhs) ->
+      let l = term_x xg xlhs and r = term_x xg xrhs in
+      equal ("match/open lhs/" ^ name) (term_to_extracted (C.term_in g lhs)) l;
+      equal ("match/open rhs/" ^ name) (term_to_extracted (C.term_in g rhs)) r;
+      convert_case ~sg:nat_sg ("match/equation/" ^ name) l r;
+      check_eval ~sg:nat_sg ~fuels:[0; 1; 5; match_fuel] ("match/open eval/" ^ name) l;
+      check_infer ~sg:nat_sg ("match/open infer/" ^ name) predicative N.predicative match_fuel (in_x xg) l;
+      check_eval_src ~sg:nat_sg ~fuels:[1; 5; 50] ("match/open eval_src/" ^ name) (C.term_in g lhs) l)
+      [ Printf.sprintf "zero/%d" j, rect (pzs @ [Co.zero]), n "z", xrect (xpzs @ [NConst (Ctor ("Nat", "zero"))]), NVar "z";
+        Printf.sprintf "succ/%d" j, rect (pzs @ [Co.succ (n "n")]),
+          Named.call (n "s") [n "n"; rect (pzs @ [n "n"])],
+          xrect (xpzs @ [NApp (NConst (Ctor ("Nat", "succ")), NVar "n")]),
+          NApp (NApp (NVar "s", NVar "n"), xrect (xpzs @ [NVar "n"]));
+        Printf.sprintf "free/%d" j, rect (pzs @ [n "n"]), rect (pzs @ [n "n"]),
+          xrect (xpzs @ [NVar "n"]), xrect (xpzs @ [NVar "n"]) ]) [0; 1];
+  equal "match/open match" (term_to_extracted (C.term_in (Ma.rect_ctx 0) Ma.open_match))
+    (term_x (X.rect_ctx 0) open_match);
+  check_infer ~sg:nat_sg "match/open match" predicative N.predicative match_fuel (in_x (X.rect_ctx 0))
+    (term_x (X.rect_ctx 0) open_match);
+  (* The category of elimination in the typing of match. *)
+  List.iter (fun (name, s, ty, a, b, xs, xty, xa, xb, g, xg) ->
+    let t = term_x xg (match_boolp xs xty xa xb) in
+    equal ("match/boolp term/" ^ name) (term_to_extracted (C.term_in g (Ma.match_boolp s ty a b))) t;
+    check_infer ~sg:boolp ("match/boolp/" ^ name) predicative_prop N.predicative_prop match_fuel (in_x xg) t;
+    check_eval ~sg:boolp ("match/boolp eval/" ^ name) t)
+    [ "into Prop", N.Prp, Named.name "A", Named.name "a", Named.name "a",
+        Prp, NVar "A", NVar "a", NVar "a",
+        ["a", Named.name "A"; "A", Named.Sort N.Prp], [("a", NVar "A"); ("A", NSrt Prp)];
+      "into Type₀", N.Univ 0, Fa.bool, Named.Const N.BTrue, Named.Const N.BFalse,
+        Univ 0, NBool, NTrue, NFalse, [], [] ];
+  (* The types of the motive and the branches, for the parameters of a
+     vector and of a W-type. *)
+  let ps_vec = [Var 7] and ps_w = [Var 3; Var 2] in
+  List.iter (fun (name, d, nd, ps, s) ->
+    let nps = List.map term_of_extracted ps in
+    equal ("match/motive type/" ^ name)
+      (term_to_extracted (N.case_motive_type nd nps (sort_of_extracted s))) (case_motive_type d ps s);
+    List.iter2 (fun c nc ->
+      equal ("match/branch type/" ^ name ^ "/" ^ nc.N.ctor_name)
+        (term_to_extracted (N.case_branch_type nd nps (N.Var 5) nc)) (case_branch_type d ps (Var 5) c))
+      d.ind_ctors nd.N.ind_ctors)
+    ["vec", vec_desc, Fa.vec_desc, ps_vec, Univ 1; "w", w_desc, Fa.w_desc, ps_w, Prp;
+     "tr", tr_desc, Fa.tr_desc, [Var 1; Var 0], Univ 0];
+  (* The guard: the same terms built independently, the same checker
+     traces and guard results, and the guard of every body of a corpus
+     under several marks and structural positions. *)
+  let guards = [
+    "half", Ma.half, half; "size", Ma.size, size; "under binders", Ma.under_binders, under_binders;
+    "g pred", Ma.g_pred, g_pred; "partial", Ma.partial, partial; "bare", Ma.bare, bare;
+    "nested", Ma.nested, nested; "shadowed", Ma.shadowed, shadowed;
+    "nonrec field", Ma.nonrec_field, nonrec_field; "half position", Ma.half_position, half_position;
+    "loop", Ma.loop, loop; "nat_rect", Ma.nat_rect 0, nat_rect 0; "plus", Ma.plus_fix, plus_fix;
+    "append", Ma.append, append; "copy", Ma.copy, copy;
+  ] in
+  List.iter (fun (name, nt, xt) ->
+    let t = X.build [] xt in
+    let native = build nt in
+    equal ("guard/term/" ^ name) (term_to_extracted native) t;
+    (match native, t with
+     | N.Fix (_, k, nb), X.Fix (_, _, b) ->
+         List.iter (fun (which, nsg, xsg) ->
+           equal ("guard/fix/" ^ which ^ "/" ^ name)
+             (guard_result_to_extracted (N.guard_fix nsg k nb)) (X.guard_fix xsg k b))
+           ["nat", nsg, sg_nat; "match", nmatch, sg_match]
+     | _ -> failwith ("guard/not a fix/" ^ name));
+    List.iter (fun (which, sg) ->
+      check_infer ~sg ("guard/infer/" ^ which ^ "/" ^ name) predicative N.predicative match_fuel [] t)
+      ["nat", nat_sg; "match", mat]) guards;
+  (* A body short of its k + 1 leading λ is refused by the guard itself. *)
+  List.iter (fun (name, k, nb) ->
+    equal ("guard/short body/" ^ name)
+      (guard_result_to_extracted (N.guard_fix nsg k nb)) (X.guard_fix sg_nat k (term_to_extracted nb)))
+    ["var", 0, N.Var 0; "one λ of two", 1, N.Lam (N.Var 0); "λ of three", 2, N.Lam (N.App (N.Var 0, N.Var 0))];
+  let mark_lists = [
+    []; [N.Self]; [N.Arg; N.Self]; [N.Sub 0; N.Arg; N.Self]; [N.Sub 1; N.Large; N.Arg; N.Self];
+    [N.Large; N.Sub 2; N.Self; N.Arg]; [N.Self; N.Sub 0]; N.entry_marks 2;
+  ] in
+  let bodies =
+    List.concat_map (fun (_, nt, _) ->
+      match build nt with
+      | N.Fix (_, _, b) ->
+          let rec unlam acc = function N.Lam b -> unlam (b :: acc) b | _ -> acc in
+          unlam [b] b
+      | _ -> []) guards
+    @ List.map (fun (_, t) -> term_of_extracted t) samples in
+  List.iteri (fun i b ->
+    List.iteri (fun j ms ->
+      List.iter (fun k ->
+        List.iter (fun spine ->
+          equal (Printf.sprintf "guard/sweep/%d/%d/%d/%b" i j k spine)
+            (guard_result_to_extracted (N.guard nmatch k ms b spine))
+            (X.guard sg_match k (List.map mark_to_extracted ms) (term_to_extracted b) spine)) [false; true])
+        [0; 1; 2; 3]) mark_lists) bodies;
+  List.iter (fun n ->
+    let nt = Named.Apply (Ma.half, Ma.nat_numeral n) in
+    let t = term_to_extracted (build nt) in
+    check_eval ~sg:nat_sg ~fuels:[0; 5; match_fuel] ("guard/half/" ^ string_of_int n) t;
+    check_eval_src ~sg:nat_sg ~fuels:[match_fuel] ("guard/half eval_src/" ^ string_of_int n) (build nt) t)
+    [0; 1; 4; 5];
   Printf.printf "reference: %d comparisons with extraction passed\n" !assertions
