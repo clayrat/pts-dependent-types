@@ -666,6 +666,9 @@ Proof.
   destruct (IH t H) as (i & -> & Hi). exists i. split; [reflexivity | lia].
 Qed.
 
+Lemma length_vars : forall base n, length (vars base n) = n.
+Proof. intros base n. induction n as [|n IH]; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
+
 Lemma free_in_head : forall t i, spine_head t = Var i -> free_in i t = true.
 Proof.
   induction t; intros i H; cbn [spine_head] in H; try discriminate H.

@@ -315,6 +315,59 @@ Section Lookup.
     match elim_view t with Some _ => true | None => false end.
 End Lookup.
 
+(** ** Adding an entry
+
+    The lookups in a signature whose entries are those of [sg] with one
+    more in front: the new entry answers for its own name, [sg] for the
+    others. *)
+
+Section AddEntry.
+  Variables sg sg' : signature.
+
+  Section Def.
+    Variables (f : String.string) (A b : term).
+    Hypothesis E : sig_entries sg' = EDef f A b :: sig_entries sg.
+
+    Lemma add_def_ind : forall D, sig_ind sg' D = sig_ind sg D.
+    Proof. intros D. unfold sig_ind. rewrite E. reflexivity. Qed.
+
+    Lemma add_def_elim : forall D s, sig_elim sg' D s = sig_elim sg D s.
+    Proof. intros D s. unfold sig_elim. rewrite E. reflexivity. Qed.
+
+    Lemma add_def_def : forall f', sig_def sg' f' = if String.eqb f f' then Some (A, b) else sig_def sg f'.
+    Proof. intros f'. unfold sig_def. rewrite E. reflexivity. Qed.
+  End Def.
+
+  Section Elim.
+    Variables (D : String.string) (s : sort) (A : term) (act : bool).
+    Hypothesis E : sig_entries sg' = EElim D s A act :: sig_entries sg.
+
+    Lemma add_elim_ind : forall D', sig_ind sg' D' = sig_ind sg D'.
+    Proof. intros D'. unfold sig_ind. rewrite E. reflexivity. Qed.
+
+    Lemma add_elim_def : forall f, sig_def sg' f = sig_def sg f.
+    Proof. intros f. unfold sig_def. rewrite E. reflexivity. Qed.
+
+    Lemma add_elim_elim : forall D' s', sig_elim sg' D' s' =
+      if String.eqb D D' && sort_eqb s s' then Some (A, act) else sig_elim sg D' s'.
+    Proof. intros D' s'. unfold sig_elim. rewrite E. reflexivity. Qed.
+  End Elim.
+
+  Section Ind.
+    Variable d : ind_desc.
+    Hypothesis E : sig_entries sg' = EInd d :: sig_entries sg.
+
+    Lemma add_ind_ind : forall D', sig_ind sg' D' = if String.eqb (ind_name d) D' then Some d else sig_ind sg D'.
+    Proof. intros D'. unfold sig_ind. rewrite E. reflexivity. Qed.
+
+    Lemma add_ind_def : forall f, sig_def sg' f = sig_def sg f.
+    Proof. intros f. unfold sig_def. rewrite E. reflexivity. Qed.
+
+    Lemma add_ind_elim : forall D' s', sig_elim sg' D' s' = sig_elim sg D' s'.
+    Proof. intros D' s'. unfold sig_elim. rewrite E. reflexivity. Qed.
+  End Ind.
+End AddEntry.
+
 (** The hypothesis of a recursive field [a : Πȳ:B̄. D Δ v̄]:
     [λȳ. elim_D[s] Δ P m̄ v̄ (a ȳ)], where [pre] are the parameters,
     motive and methods of the eliminator.  The indices v̄ lie under the

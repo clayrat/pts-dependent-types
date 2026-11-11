@@ -101,11 +101,23 @@ Definition tsub (args : list term) : nat -> term :=
 Lemma tsub_nil : forall i, tsub [] i = Var i.
 Proof. intros [|i]; reflexivity. Qed.
 
-Lemma tsub_lt : forall a args i, i < length args -> tsub (a :: args) i = tsub args i.
+(** The arguments of a telescope followed by those of another: the
+    variables of either are its own arguments. *)
+Lemma tsub_app_lt : forall l1 l2 i, i < length l2 -> tsub (l1 ++ l2) i = tsub l2 i.
 Proof.
-  intros a args i H. unfold tsub. cbn [rev]. rewrite app_nth1 by (rewrite length_rev; exact H).
+  intros l1 l2 i H. unfold tsub. rewrite rev_app_distr, app_nth1 by (rewrite length_rev; exact H).
   apply nth_indep. rewrite length_rev. exact H.
 Qed.
+
+Lemma tsub_app_ge : forall l1 l2 j, tsub (l1 ++ l2) (length l2 + j) = tsub l1 j.
+Proof.
+  intros l1 l2 j. unfold tsub. rewrite rev_app_distr, app_nth2 by (rewrite length_rev; lia).
+  rewrite length_rev, length_app. replace (length l2 + j - length l2) with j by lia.
+  f_equal. f_equal. lia.
+Qed.
+
+Lemma tsub_lt : forall a args i, i < length args -> tsub (a :: args) i = tsub args i.
+Proof. intros a args i H. exact (tsub_app_lt [a] args i H). Qed.
 
 (** ** Telescopes of terms with allowed constants and matches *)
 

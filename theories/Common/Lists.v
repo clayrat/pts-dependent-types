@@ -1,10 +1,12 @@
 (** * Pointwise relations on lists
 
     Facts about [Forall2] that the standard library does not state:
-    splitting at a known length, taking apart a [cons] on the left, the
-    pointwise elements and the reversal. *)
+    splitting at a known length, taking apart a [cons] or a singleton on
+    the left, the pointwise elements, a partner of a member on either
+    side and the reversal; and [firstn] and [skipn] at the length of a
+    prefix. *)
 
-From Stdlib Require Import List Lia.
+From Stdlib Require Import List Arith Lia.
 Import ListNotations.
 
 Lemma forall2_app_split : forall {A B} (R : A -> B -> Prop) l1 l1' l2 l2', length l1 = length l1' ->
@@ -34,7 +36,29 @@ Proof.
   apply Forall2_app; [assumption | constructor; [assumption | constructor]].
 Qed.
 
+Lemma forall2_in_l : forall {A B} (R : A -> B -> Prop) l l' x, Forall2 R l l' -> In x l -> exists y, R x y.
+Proof.
+  intros A B R l l' x H. induction H as [|a b l l' Hab _ IH]; intros Hin; [destruct Hin | ].
+  destruct Hin as [-> | Hin]; [exists b; exact Hab | exact (IH Hin)].
+Qed.
+
+Lemma forall2_in_r : forall {A B} (R : A -> B -> Prop) l l' y, Forall2 R l l' -> In y l' -> exists x, In x l /\ R x y.
+Proof.
+  intros A B R l l' y H. induction H as [|a b l l' Hab _ IH]; intros Hin; [destruct Hin | ].
+  destruct Hin as [-> | Hin]; [exists a; split; [left; reflexivity | exact Hab] | ].
+  destruct (IH Hin) as (x & Hx & Hr). exists x. split; [right; exact Hx | exact Hr].
+Qed.
+
+Lemma forall2_singleton : forall {A B} (R : A -> B -> Prop) a l, Forall2 R [a] l -> exists b, l = [b] /\ R a b.
+Proof. intros A B R a l H. inversion H as [| ? b ? l' Hab Hl]; subst. inversion Hl; subst. eauto. Qed.
+
 Lemma forallb_firstn : forall {A} (f : A -> bool) n l, forallb f l = true -> forallb f (firstn n l) = true.
 Proof.
   intros A f n l H. rewrite <- (firstn_skipn n l), forallb_app in H. apply andb_prop in H. exact (proj1 H).
 Qed.
+
+Lemma firstn_app_exact : forall {A} (l1 l2 : list A) n, n = length l1 -> firstn n (l1 ++ l2) = l1.
+Proof. intros A l1 l2 n ->. rewrite firstn_app, firstn_all, Nat.sub_diag, firstn_O, app_nil_r. reflexivity. Qed.
+
+Lemma skipn_app_exact : forall {A} (l1 l2 : list A) n, n = length l1 -> skipn n (l1 ++ l2) = l2.
+Proof. intros A l1 l2 n ->. rewrite skipn_app, skipn_all, Nat.sub_diag. reflexivity. Qed.

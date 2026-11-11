@@ -621,6 +621,17 @@ Qed.
 Lemma map_tsub_vars0 : forall l, map (subst (tsub l)) (vars 0 (length l)) = l.
 Proof. intros l. pose proof (map_tsub_vars l []) as E. rewrite app_nil_r in E. exact E. Qed.
 
+Lemma map_tsub_vars_in : forall l0 l m, map (subst (tsub (l0 ++ l ++ m))) (vars (length m) (length l)) = l.
+Proof.
+  intros l0 l m. transitivity (map (subst (tsub (l ++ m))) (vars (length m) (length l)));
+    [ | apply map_tsub_vars].
+  apply map_ext_in. intros t Ht. destruct (vars_in _ _ _ Ht) as (i & -> & Hi). cbn [subst].
+  apply tsub_app_lt. rewrite length_app. lia.
+Qed.
+
+Lemma map_tsub_vars_last : forall l m, map (subst (tsub (l ++ m))) (vars 0 (length m)) = m.
+Proof. intros l m. pose proof (map_tsub_vars_in l m []) as H. rewrite app_nil_r in H. exact H. Qed.
+
 (** The arguments of a telescope, then those of an inner one. *)
 Lemma tsub_app : forall ps xs i, subst (tsub xs) (upn (length xs) (tsub ps) i) = tsub (ps ++ xs) i.
 Proof.

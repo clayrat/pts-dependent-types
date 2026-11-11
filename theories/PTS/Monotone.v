@@ -55,6 +55,85 @@ Proof.
   - intros D s A H. rewrite <- He. exact H.
 Qed.
 
+(** A registration adds an entry under a free name; an instance is
+    checked inactive, then added active. *)
+
+Lemma sig_le_def : forall sg sg' f A b, sig_def sg f = None ->
+  sig_entries sg' = EDef f A b :: sig_entries sg -> sig_le sg sg'.
+Proof.
+  intros sg sg' f A b Hf E.
+  assert (Hd : forall f' x, sig_def sg f' = Some x -> sig_def sg' f' = Some x).
+  { intros f' x H. rewrite (add_def_def _ _ _ _ _ E). destruct (String.eqb f f') eqn:Ef; [ | exact H].
+    apply String.eqb_eq in Ef. subst f'. rewrite Hf in H. discriminate H. }
+  constructor.
+  - intros [D | D c | D s | f'] T H; cbn [sig_type] in *;
+      [rewrite (add_def_ind _ _ _ _ _ E) | rewrite (add_def_ind _ _ _ _ _ E) | rewrite (add_def_elim _ _ _ _ _ E) | ];
+      [exact H | exact H | exact H | ].
+    destruct (sig_def sg f') as [x|] eqn:Ex; [ | discriminate H]. rewrite (Hd _ _ Ex). exact H.
+  - intros D d H. rewrite (add_def_ind _ _ _ _ _ E). exact H.
+  - intros [D | D c | D s | f'] x H; cbn [sig_delta] in *; try discriminate H.
+    destruct (sig_def sg f') as [y|] eqn:Ey; [ | discriminate H]. rewrite (Hd _ _ Ey). exact H.
+  - intros D s T H. rewrite (add_def_elim _ _ _ _ _ E). exact H.
+Qed.
+
+Lemma sig_le_elim : forall sg sg' D s A act, sig_elim sg D s = None ->
+  sig_entries sg' = EElim D s A act :: sig_entries sg -> sig_le sg sg'.
+Proof.
+  intros sg sg' D s A act Hn E.
+  assert (He : forall D' s' x, sig_elim sg D' s' = Some x -> sig_elim sg' D' s' = Some x).
+  { intros D' s' x H. rewrite (add_elim_elim _ _ _ _ _ _ E). destruct (String.eqb D D' && sort_eqb s s') eqn:Em; [ | exact H].
+    apply andb_prop in Em as [E1 E2]. apply String.eqb_eq in E1. apply sort_eqb_eq in E2. subst.
+    rewrite Hn in H. discriminate H. }
+  constructor.
+  - intros [D' | D' c | D' s' | f] T H; cbn [sig_type] in *;
+      [rewrite (add_elim_ind _ _ _ _ _ _ E) | rewrite (add_elim_ind _ _ _ _ _ _ E) | | rewrite (add_elim_def _ _ _ _ _ _ E)];
+      [exact H | exact H | | exact H].
+    destruct (sig_elim sg D' s') as [x|] eqn:Ex; [ | discriminate H]. rewrite (He _ _ _ Ex). exact H.
+  - intros D' d H. rewrite (add_elim_ind _ _ _ _ _ _ E). exact H.
+  - intros [D' | D' c | D' s' | f] x H; cbn [sig_delta] in *; try discriminate H.
+    rewrite (add_elim_def _ _ _ _ _ _ E). exact H.
+  - intros D' s' T H. exact (He _ _ _ H).
+Qed.
+
+Lemma sig_le_ind : forall sg sg' d, sig_ind sg (ind_name d) = None ->
+  sig_entries sg' = EInd d :: sig_entries sg -> sig_le sg sg'.
+Proof.
+  intros sg sg' d Hn E.
+  assert (Hi : forall D x, sig_ind sg D = Some x -> sig_ind sg' D = Some x).
+  { intros D x H. rewrite (add_ind_ind _ _ _ E). destruct (String.eqb (ind_name d) D) eqn:Ed; [ | exact H].
+    apply String.eqb_eq in Ed. subst D. rewrite Hn in H. discriminate H. }
+  constructor.
+  - intros [D | D c | D s | f] T H; cbn [sig_type] in *.
+    + destruct (sig_ind sg D) as [x|] eqn:Ex; [ | discriminate H]. rewrite (Hi _ _ Ex). exact H.
+    + destruct (sig_ind sg D) as [x|] eqn:Ex; [ | discriminate H]. rewrite (Hi _ _ Ex). exact H.
+    + rewrite (add_ind_elim _ _ _ E). exact H.
+    + rewrite (add_ind_def _ _ _ E). exact H.
+  - exact Hi.
+  - intros [D | D c | D s | f] x H; cbn [sig_delta] in *; try discriminate H.
+    rewrite (add_ind_def _ _ _ E). exact H.
+  - intros D s T H. rewrite (add_ind_elim _ _ _ E). exact H.
+Qed.
+
+(** The rules of an instance are checked where it is inactive; it is
+    added active. *)
+Lemma sig_le_activate : forall sg tmp sg' D s A,
+  sig_entries tmp = EElim D s A false :: sig_entries sg ->
+  sig_entries sg' = EElim D s A true :: sig_entries sg -> sig_le tmp sg'.
+Proof.
+  intros sg tmp sg' D s A E1 E2. constructor.
+  - intros [D' | D' c | D' s' | f] T H; cbn [sig_type] in *.
+    + rewrite (add_elim_ind _ _ _ _ _ _ E2). rewrite (add_elim_ind _ _ _ _ _ _ E1) in H. exact H.
+    + rewrite (add_elim_ind _ _ _ _ _ _ E2). rewrite (add_elim_ind _ _ _ _ _ _ E1) in H. exact H.
+    + rewrite (add_elim_elim _ _ _ _ _ _ E2). rewrite (add_elim_elim _ _ _ _ _ _ E1) in H.
+      destruct (String.eqb D D' && sort_eqb s s'); exact H.
+    + rewrite (add_elim_def _ _ _ _ _ _ E2). rewrite (add_elim_def _ _ _ _ _ _ E1) in H. exact H.
+  - intros D' d H. rewrite (add_elim_ind _ _ _ _ _ _ E2). rewrite (add_elim_ind _ _ _ _ _ _ E1) in H. exact H.
+  - intros [D' | D' c | D' s' | f] x H; cbn [sig_delta] in *; try discriminate H.
+    rewrite (add_elim_def _ _ _ _ _ _ E2). rewrite (add_elim_def _ _ _ _ _ _ E1) in H. exact H.
+  - intros D' s' T H. rewrite (add_elim_elim _ _ _ _ _ _ E2). rewrite (add_elim_elim _ _ _ _ _ _ E1) in H.
+    destruct (String.eqb D D' && sort_eqb s s'); [discriminate H | exact H].
+Qed.
+
 Section Extension.
   Variables sg sg' : signature.
   Hypothesis Hle : sig_le sg sg'.
