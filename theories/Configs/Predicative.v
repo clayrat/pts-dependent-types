@@ -134,3 +134,32 @@ Proof. solve_table_closed. Qed.
 
 Definition predicative_prop : spec :=
   {| spec_table := predicative_prop_table; spec_wf := predicative_prop_closed |}.
+
+(** Both hierarchies with constants are full: every sort has a type and
+    every pair of sorts a Π-rule, as the soundness of the kernel's
+    [match] for the declarative rules needs (PTS.BidirSound). *)
+Lemma predicative_full : full_table predicative.
+Proof.
+  split.
+  - intros [] H; try discriminate H. eexists. reflexivity.
+  - intros [] [] H1 H2; try discriminate H1; try discriminate H2. eexists. reflexivity.
+Qed.
+
+Lemma predicative_prop_full : full_table predicative_prop.
+Proof.
+  split.
+  - intros [] H; try discriminate H; eexists; reflexivity.
+  - intros [] [] H1 H2; try discriminate H1; try discriminate H2; eexists; reflexivity.
+Qed.
+
+(** The hierarchy with Prop contains the one without. *)
+Lemma predicative_le_prop : spec_le predicative predicative_prop.
+Proof.
+  constructor; cbn.
+  - intros [] H; try discriminate H; reflexivity.
+  - intros [] s' H; try discriminate H; exact H.
+  - intros [] [] s3 H; try discriminate H; exact H.
+  - intros s H; exact H.
+  - intros [] [] s3 H; try discriminate H; exact H.
+  - intros H; exact H.
+Qed.

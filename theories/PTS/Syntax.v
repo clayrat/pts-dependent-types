@@ -295,6 +295,24 @@ Qed.
 Lemma spine_args_App : forall f a, spine_args (App f a) = spine_args f ++ [a].
 Proof. intros f a. unfold spine_args at 1. cbn [spine_args_acc]. apply spine_args_acc_app. Qed.
 
+(** [t] and the applications it is built from, outermost first: [f a b],
+    [f a], [f] for [t = f a b]; one more than the arguments. *)
+Fixpoint spine_prefixes (t : term) : list term :=
+  match t with
+  | App f _ => t :: spine_prefixes f
+  | _ => [t]
+  end.
+
+Lemma spine_prefixes_hd : forall t, exists ps, spine_prefixes t = t :: ps.
+Proof. intros t. destruct t; eexists; reflexivity. Qed.
+
+Lemma spine_prefixes_length : forall t, length (spine_prefixes t) = S (length (spine_args t)).
+Proof.
+  induction t; try reflexivity.
+  cbn [spine_prefixes length]. rewrite IHt1, spine_args_App, length_app. cbn [length].
+  rewrite Nat.add_1_r. reflexivity.
+Qed.
+
 Fixpoint pis (As : list term) (B : term) : term :=
   match As with
   | [] => B
@@ -609,3 +627,159 @@ Fixpoint has_lams (n : nat) (b : term) : bool :=
   | S n', Lam b' => has_lams n' b'
   | S _, _ => false
   end.
+
+(** ** Spines, Π-telescopes, variables and contexts *)
+
+Lemma apps_const_inj : forall g l l', apps (Const g) l = apps (Const g) l' -> l = l'.
+Proof. intros g l l' E. apply (f_equal spine_args) in E. rewrite !spine_args_apps in E. exact E. Qed.
+
+Lemma apps_const_not_srt : forall g l s, apps (Const g) l <> Srt s.
+Proof.
+  intros g l s. induction l as [|a l _] using rev_ind; [discriminate | rewrite apps_snoc; discriminate].
+Qed.
+
+Lemma pis_app : forall Ts1 Ts2 R, pis (Ts1 ++ Ts2) R = pis Ts1 (pis Ts2 R).
+Proof. induction Ts1 as [|T Ts1 IH]; intros Ts2 R; cbn [app pis]; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma pis_apps_not_srt : forall Ts h l a s, pis Ts (apps h (l ++ [a])) <> Srt s.
+Proof. intros [|T Ts] h l a s; cbn [pis]; [rewrite apps_snoc | ]; discriminate. Qed.
+
+Lemma closed_above_apps : forall us h k,
+  closed_above k (apps h us) = closed_above k h && forallb (closed_above k) us.
+Proof.
+  induction us as [|u us IH]; intros h k; cbn [apps fold_left forallb].
+  - rewrite andb_true_r. reflexivity.
+  - unfold apps in IH. rewrite IH. cbn [closed_above]. rewrite andb_assoc. reflexivity.
+Qed.
+
+Lemma vars_closed : forall k base n, base + n <= k -> forallb (closed_above k) (vars base n) = true.
+Proof.
+  intros k base n. induction n as [|n IH]; intros H; [reflexivity | ].
+  cbn [vars forallb closed_above]. rewrite IH by lia.
+  apply andb_true_intro; split; [apply Nat.ltb_lt; lia | reflexivity].
+Qed.
+
+Lemma vars_in : forall base n t, In t (vars base n) -> exists i, t = Var i /\ base <= i < base + n.
+Proof.
+  intros base n. induction n as [|n IH]; intros t H; [destruct H | ].
+  cbn [vars In] in H. destruct H as [<- | H]; [exists (base + n); split; [reflexivity | lia] | ].
+  destruct (IH t H) as (i & -> & Hi). exists i. split; [reflexivity | lia].
+Qed.
+
+Lemma free_in_head : forall t i, spine_head t = Var i -> free_in i t = true.
+Proof.
+  induction t; intros i H; cbn [spine_head] in H; try discriminate H.
+  - injection H as ->. cbn [free_in]. apply Nat.eqb_refl.
+  - cbn [free_in]. rewrite (IHt1 i H). reflexivity.
+Qed.
+
+Lemma subst1_srt_inv : forall B u s, subst1 B u = Srt s -> B = Srt s \/ (B = Var 0 /\ u = Srt s).
+Proof.
+  intros B u s E. destruct B as [s' | n | | | | | | | | | | | | | | | | | | | |]; cbn in E; try discriminate E.
+  - left. exact E.
+  - destruct n as [|n]; cbn in E; [right; split; [reflexivity | exact E] | discriminate E].
+Qed.
+
+Lemma lookup_app_some : forall Gm G n A, lookup Gm n = Some A -> lookup (Gm ++ G) n = Some A.
+Proof.
+  intros Gm G n A H. unfold lookup in *.
+  destruct (nth_error Gm n) eqn:E; [ | discriminate H].
+  rewrite nth_error_app1 by (apply nth_error_Some; congruence). rewrite E. exact H.
+Qed.
+
+(** ** Terms of allowed constants and matches
+
+    [allnodes pc pk t]: every constant of [t] satisfies [pc] and every
+    match of [t] is on a family that satisfies [pk].  Renaming and
+    substitution of terms of that kind keep it. *)
+
+Fixpoint allnodes (pc : gref -> bool) (pk : String.string -> bool) (t : term) : bool :=
+  match t with
+  | Srt _ | Var _ | Void | Unit | Tt | Bool | BTrue | BFalse => true
+  | Const g => pc g
+  | Pi A B | Sigma A B | App A B | Ann A B | ElimVoid A B | Pair A B => allnodes pc pk A && allnodes pc pk B
+  | Lam b | Fst b | Snd b => allnodes pc pk b
+  | ElimUnit C c u => allnodes pc pk C && allnodes pc pk c && allnodes pc pk u
+  | ElimBool C t f b => allnodes pc pk C && allnodes pc pk t && allnodes pc pk f && allnodes pc pk b
+  | Case D _ P x bs => pk D && allnodes pc pk P && allnodes pc pk x && forallb (allnodes pc pk) bs
+  | Fix A _ b => allnodes pc pk A && allnodes pc pk b
+  end.
+
+(** Every constant allowed: only the families of the matches are checked. *)
+Notation cases_in cok := (allnodes (fun _ => true) cok).
+
+Section AllNodes.
+  Variable pc : gref -> bool.
+  Variable pk : String.string -> bool.
+  Local Notation an := (allnodes pc pk).
+
+  Lemma an_rename : forall t f, an (rename f t) = an t.
+  Proof.
+    intros t. induction t using term_ind'; intros fr; cbn [allnodes rename]; auto;
+      repeat match goal with H : forall f, an (rename f ?t) = _ |- _ => rewrite H end; auto.
+    f_equal. induction IHl as [|b bs Hb _ IH]; [reflexivity | cbn [map forallb]; rewrite Hb, IH; reflexivity].
+  Qed.
+
+  Lemma an_lift : forall n t, an (lift n t) = an t.
+  Proof. intros n t. apply an_rename. Qed.
+
+  Lemma an_subst : forall t sb, an t = true -> (forall n, an (sb n) = true) -> an (subst sb t) = true.
+  Proof.
+    assert (Hup : forall sb, (forall n, an (sb n) = true) -> forall n, an (up_sub sb n) = true).
+    { intros sb H [|n]; [reflexivity | cbn [up_sub]; rewrite an_lift; apply H]. }
+    intros t. induction t using term_ind'; intros sb Ht Hsb; cbn [allnodes subst] in *;
+      repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+      repeat (apply andb_true_intro; split); auto.
+    rewrite forallb_forall in *. intros b Hb. apply in_map_iff in Hb as (b0 & <- & Hb0).
+    rewrite Forall_forall in IHl. auto.
+  Qed.
+
+  Lemma an_subst1 : forall b u, an b = true -> an u = true -> an (subst1 b u) = true.
+  Proof. intros b u Hb Hu. apply an_subst; [exact Hb | intros [|n]; [exact Hu | reflexivity]]. Qed.
+
+  Lemma an_apps : forall l h, an (apps h l) = an h && forallb an l.
+  Proof.
+    induction l as [|a l IH]; intros h; cbn [forallb]; [rewrite andb_true_r; reflexivity | ].
+    change (apps h (a :: l)) with (apps (App h a) l). rewrite IH. cbn [allnodes]. symmetry. apply andb_assoc.
+  Qed.
+
+  Lemma an_lams : forall n b, an (lams n b) = an b.
+  Proof. induction n as [|n IH]; intros b; [reflexivity | exact (IH b)]. Qed.
+
+  Lemma an_vars : forall base n, forallb an (vars base n) = true.
+  Proof. intros base n. induction n as [|n IH]; [reflexivity | exact IH]. Qed.
+
+  Lemma an_pis : forall Ts R, an (pis Ts R) = forallb an Ts && an R.
+  Proof.
+    induction Ts as [|T Ts IH]; intros R; [reflexivity | ]. cbn [pis allnodes forallb]. rewrite IH.
+    apply andb_assoc.
+  Qed.
+
+  Lemma an_spine : forall t, an t = true -> an (spine_head t) = true /\ forallb an (spine_args t) = true.
+  Proof.
+    intros t Ht. rewrite <- (apps_spine t) in Ht. rewrite an_apps in Ht. apply andb_prop in Ht. exact Ht.
+  Qed.
+
+End AllNodes.
+
+Lemma an_true : forall t, allnodes (fun _ => true) (fun _ => true) t = true.
+Proof.
+  intros t. induction t using term_ind'; cbn [allnodes]; auto; try (rewrite ?IHt1, ?IHt2, ?IHt3, ?IHt4, ?IHt; reflexivity).
+  rewrite IHt1, IHt2. cbn [andb]. induction IHl as [|b bs Hb _ IH]; [reflexivity | cbn [forallb]; rewrite Hb; exact IH].
+Qed.
+
+Lemma an_weaken : forall pc pk pc' pk' t, (forall g, pc g = true -> pc' g = true) ->
+  (forall D, pk D = true -> pk' D = true) -> allnodes pc pk t = true -> allnodes pc' pk' t = true.
+Proof.
+  intros pc pk pc' pk' t Hc Hk. induction t using term_ind'; intros H; cbn [allnodes] in *;
+    repeat match goal with H : _ && _ = true |- _ => apply andb_prop in H as [? ?] end;
+    repeat (apply andb_true_intro; split); auto.
+  rewrite forallb_forall in *. rewrite Forall_forall in IHl. auto.
+Qed.
+
+Lemma an_lookup : forall pc pk G n A, forallb (allnodes pc pk) G = true -> lookup G n = Some A ->
+  allnodes pc pk A = true.
+Proof.
+  intros pc pk G n A HG H. unfold lookup in H. destruct (nth_error G n) as [A0|] eqn:E; [ | discriminate H].
+  injection H as <-. rewrite an_lift. rewrite forallb_forall in HG. exact (HG A0 (nth_error_In _ _ E)).
+Qed.

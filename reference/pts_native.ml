@@ -774,14 +774,15 @@ type checker = {
   infer_in : ctx -> term -> term checked;
   check_in : ctx -> term -> term -> unit checked;
   infer_open : ctx -> term -> term checked;
+  infer_spine_open : ctx -> term -> term list checked;
 }
 
 (* The checker for one specification, signature and fuel budget, like
-   [Section Check] in Check.v: [spec], [sg], [fuel] and the event [log] are
-   fixed for the run. *)
-let make_checker spec sg fuel log =
+   [Section Check] in Check.v: [spec], [sg], [fuel] and [record], which
+   receives each event of the trace, are fixed for the run. *)
+let make_checker spec sg fuel record =
   let whnf = whnf ~sg and convert = convert ~sg in
-  let emit event = Queue.add event log; Ok () in
+  let emit event = record event; Ok () in
 
   let axiom sort =
     match spec.axiom sort with
@@ -1022,6 +1023,22 @@ let make_checker spec sg fuel log =
         let* _ = infer_sort gamma ty in
         return ()
   in
+  (* The types of an application and of its prefixes, outermost first, in
+     the steps of [infer] and in its order: [infer_spine] of Check.v. *)
+  let rec infer_spine gamma term =
+    match term with
+    | App (fn, argument) ->
+        let* types = infer_spine gamma fn in
+        (match types with
+         | function_ty :: _ ->
+             let* domain, codomain = as_pi fn function_ty in
+             let* () = check gamma argument domain in
+             return (subst1 codomain argument :: types)
+         | [] -> return [])
+    | _ ->
+        let* ty = infer gamma term in
+        return [ ty ]
+  in
   let infer_in gamma term =
     let* () = check_ctx gamma in
     let* () = emit (EvTerm term) in
@@ -1034,16 +1051,23 @@ let make_checker spec sg fuel log =
     let* () = emit (EvTerm term) in
     check gamma term expected
   in
-  { infer_in; check_in; infer_open = infer }
+  { infer_in; check_in; infer_open = infer; infer_spine_open = infer_spine }
 
+let to_answer = function
+  | Ok value -> Accepted value
+  | Error (Reject error) -> Rejected error
+  | Error (NoFuel term) -> Undecided term
+
+(* A run with its trace, in order, as [run_answer] of Check.v. *)
 let run spec sg fuel task =
   let log = Queue.create () in
-  let answer = match task (make_checker spec sg fuel log) with
-    | Ok value -> Accepted value
-    | Error (Reject error) -> Rejected error
-    | Error (NoFuel term) -> Undecided term
-  in
+  let answer = to_answer (task (make_checker spec sg fuel (fun event -> Queue.add event log))) in
   List.of_seq (Queue.to_seq log), answer
+
+(* The same run for its answer alone: the events are dropped as they come,
+   so no log is built and the terms they mention are not kept alive until
+   the end of the run. *)
+let run_quiet spec sg fuel task = to_answer (task (make_checker spec sg fuel ignore))
 
 let run_infer ?(sg = empty_signature) spec fuel gamma term =
   run spec sg fuel (fun checker -> checker.infer_in gamma term)
@@ -1053,9 +1077,23 @@ let run_check ?(sg = empty_signature) spec fuel gamma term expected =
 
 (* [infer] of Check.v alone, in a context taken as checked: the types of
    subterms that erasure asks for (erasure-cic, reference/erase_native.ml).
-   diff.ml compares it with [run_answer (infer …)] of the extract. *)
+   diff.ml compares it with [run_answer (infer …)] of the extract.  Callers
+   that drop the events use [infer_open_answer]. *)
 let run_infer_open ?(sg = empty_signature) spec fuel gamma term =
   run spec sg fuel (fun checker -> checker.infer_open gamma term)
+
+(* [infer_spine] of Check.v, in a context taken as checked: the types of an
+   application and of its prefixes, for the erasure of applications. *)
+let run_infer_spine_open ?(sg = empty_signature) spec fuel gamma term =
+  run spec sg fuel (fun checker -> checker.infer_spine_open gamma term)
+
+(* The answers of [run_infer_open] and [run_infer_spine_open] alone, without
+   the trace, which erasure does not use. *)
+let infer_open_answer ?(sg = empty_signature) spec fuel gamma term =
+  run_quiet spec sg fuel (fun checker -> checker.infer_open gamma term)
+
+let infer_spine_open_answer ?(sg = empty_signature) spec fuel gamma term =
+  run_quiet spec sg fuel (fun checker -> checker.infer_spine_open gamma term)
 
 (* Call-by-value evaluation of source programs, as [eval_nested] of
    EvalSrc.v, one application at a time: weak, the function and then the

@@ -196,3 +196,6 @@ Proof.
   - injection Et as ->. edestruct spec_axiom_sorts as [Hs _]; [eassumption | exact Hs].
   - auto.
 Qed.
+
+(** The judgments, by mutual induction. *)
+Combined Scheme typing_mutind from wf_ctx_mut, has_type_mut, has_branches_mut.

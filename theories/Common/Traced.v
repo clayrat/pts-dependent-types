@@ -5,7 +5,8 @@
     computation that may fail with an error of type [E] and appends events
     of type [Ev] to a log.  The log is kept in reverse
     order while running; [run_traced] starts from the empty log and returns
-    it in chronological order.
+    it in chronological order, [run_result] returns the result alone,
+    without putting the log in order.
 
     The lemmas decompose a successful run: [tbind_ok] splits a successful
     [let!] into two successful steps, the tactic [tbind_in] applies it to
@@ -50,6 +51,8 @@ Section Traced.
   Definition run_traced {A} (m : traced Ev E A) : list Ev * result E A :=
     let (log, r) := m [] in (rev' log, r).
 
+  Definition run_result {A} (m : traced Ev E A) : result E A := snd (m []).
+
   (** ** Successful runs *)
 
   Lemma tbind_ok : forall {A B} (m : traced Ev E A) (f : A -> traced Ev E B) log log' b,
@@ -81,6 +84,13 @@ Section Traced.
   Lemma run_traced_step : forall {A} (m : traced Ev E A) log a,
       m [] = (log, Ok a) -> snd (run_traced m) = Ok a.
   Proof. intros A m log a H. unfold run_traced. now rewrite H. Qed.
+
+  Lemma run_result_ok : forall {A} (m : traced Ev E A) a,
+      run_result m = Ok a -> exists log, m [] = (log, Ok a).
+  Proof.
+    intros A m a H. unfold run_result in H.
+    destruct (m []) as [log r]. cbn in H. subst r. now exists log.
+  Qed.
 End Traced.
 
 Notation "'let!' x ':=' m 'in' body" := (tbind m (fun x => body))

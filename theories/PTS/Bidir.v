@@ -70,9 +70,9 @@
     [normalizing_types] is an obligation for U⁻ and U (normalization of
     their type level) and for the predicative hierarchy (normalization of
     MLTT); it is not expected for λ∗.  Running out of fuel is a separate
-    answer, neither success nor rejection.  Confluence, injectivity of Π
-    and uniqueness of synthesized types up to conversion are further
-    obligations behind completeness. *)
+    answer, neither success nor rejection.  Confluence and injectivity
+    of Π (PTS.Confluence), and uniqueness of synthesized types up to
+    conversion, a further obligation, are behind completeness. *)
 
 From Stdlib Require Import List Bool Arith Relations.
 From Stdlib Require String.

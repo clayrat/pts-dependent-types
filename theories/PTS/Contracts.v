@@ -11,9 +11,10 @@
     signature: reduction, normal order, the evaluator and the checker take
     one, and its δ- and ι-contractions are among the steps.  They are
     stated with the signature as an explicit argument.  A signature
-    guarantees only closedness, so the open obligations that relate the
-    kernel to the declarative rules or to evaluation assume a type-correct
-    one ([signature_typed] of PTS.Typing).
+    guarantees only closedness, so validity, subject reduction and the
+    open obligations that relate the kernel to the declarative rules or
+    to evaluation assume a type-correct one ([signature_typed] of
+    PTS.Typing).
 
     This file depends on the kernel alone, so that the projects built on
     it can import its contracts without the PCF translation and
@@ -23,8 +24,8 @@
 
 From Stdlib Require Import List Relations Arith.
 From DepTypes.Common Require Import Result.
-From DepTypes.PTS Require Import Syntax Spec Signature Reduction SubstLaws NormalOrder Eval
-  EvalSrc Guard GuardSound Typing Bidir Check CheckSound.
+From DepTypes.PTS Require Import Syntax Spec Signature Reduction SubstLaws Confluence NormalOrder Eval
+  EvalSrc Guard GuardSound Typing TypingSubst Inversion SubjectRed Bidir BidirSound Check CheckSound.
 
 (** ** Substitution (level 1) *)
 
@@ -130,6 +131,20 @@ Definition checker_sound : Prop :=
 Theorem checker_sound_holds : checker_sound.
 Proof. split; [exact run_infer_sound | exact run_check_sound]. Qed.
 
+(** An accepted [infer_spine], the types that erasure asks for in a
+    context taken as checked, has one type per prefix of the application,
+    outermost first ([spine_prefixes]: never empty, one more than the
+    arguments), each the judgment of the annotated kernel for its prefix. *)
+Definition infer_spine_contract : Prop :=
+  forall S sg fuel G t Ts, snd (run_answer (infer_spine S sg fuel G t)) = Accepted Ts ->
+  Forall2 (synth S sg G) (spine_prefixes t) Ts.
+
+Theorem infer_spine_holds : infer_spine_contract.
+Proof.
+  intros S sg fuel G t Ts H. apply run_answer_accepted in H as [log H].
+  exact (infer_spine_typed S sg fuel t G nil log Ts H).
+Qed.
+
 (** A match the kernel accepts eliminates into a sort that the category
     of its type allows: the one check [allows_elimination] that the
     registration of eliminator instances uses too. *)
@@ -186,29 +201,103 @@ Definition eval_src_sound : Prop :=
 Theorem eval_src_sound_holds : eval_src_sound.
 Proof. intros sg. exact eval_src_reduces. Qed.
 
-(** ** Open obligations
+(** ** Confluence (level 1)
 
-    Stated, not proved.  Each is a separate task, and none is a condition
-    of the executable kernel of level 1. *)
+    Reduction is confluent for every signature, by parallel reduction
+    and complete development (PTS.Confluence); the injectivity of Π
+    follows, since a Π reduces only to a Π and convertible terms have a
+    common reduct. *)
+Definition confluence : Prop :=
+  forall sg t u v, red sg t u -> red sg t v -> exists w, red sg u w /\ red sg v w.
 
-(** The typing half of the correctness of substitution, for the
-    declarative rules: weakening by a well-sorted type, and the
-    substitution lemma. *)
+Theorem confluence_holds : confluence.
+Proof. intros sg. exact (red_confluent sg). Qed.
+
+Definition pi_injective : Prop :=
+  forall sg A B A' B', conv sg (Pi A B) (Pi A' B') -> conv sg A A' /\ conv sg B B'.
+
+Theorem pi_injective_holds : pi_injective.
+Proof. intros sg. exact (pi_inj sg). Qed.
+
+(** ** Weakening and substitution for the declarative rules (level 1)
+
+    The typing half of the correctness of substitution, for every
+    specification and signature (PTS.TypingSubst): weakening by a
+    well-sorted type, and the substitution lemma.  Both are instances of
+    the stability of typing under renamings and substitutions that keep
+    the types of the variables.  They rest on the closedness of the
+    signature, which gives the types of constants and the types of the
+    branches of a match, and on the marks of the guard, which give every
+    variable outside a [fix] the mark [Large]. *)
 Definition typing_weakening : Prop :=
   forall S sg G t A B s, has_type S sg G t A -> has_type S sg G B (Srt s) ->
   has_type S sg (B :: G) (lift 1 t) (lift 1 A).
+
+Theorem typing_weakening_holds : typing_weakening.
+Proof. intros S sg. exact (typing_weaken1 S sg). Qed.
 
 Definition typing_substitution : Prop :=
   forall S sg G u A t B, has_type S sg G u A -> has_type S sg (A :: G) t B ->
   has_type S sg G (subst1 t u) (subst1 B u).
 
-(** Metatheory of reduction: confluence, and the injectivity of Π that
-    follows from it. *)
-Definition confluence : Prop :=
-  forall sg t u v, red sg t u -> red sg t v -> exists w, red sg u w /\ red sg v w.
+Theorem typing_substitution_holds : typing_substitution.
+Proof. intros S sg. exact (typing_subst1 S sg). Qed.
 
-Definition pi_injective : Prop :=
-  forall sg A B A' B', conv sg (Pi A B) (Pi A' B') -> conv sg A A' /\ conv sg B B'.
+(** ** Validity and subject reduction (level 1)
+
+    In a type-correct signature, the type of a typed term is a sort or a
+    type of some sort (PTS.Inversion), and a reduct of a term has every
+    type of the term, after any number of steps in any position, under
+    binders and in the body of a [fix] included (PTS.SubjectRed).  Both
+    rest on weakening and substitution, on the inversion of the rules,
+    and on confluence through the injectivity of Π, of Σ and of the
+    spines of a family, which matches the indices of a constructor with
+    those of the scrutinee of a match.  Subject reduction rests also on
+    context conversion, for a step in the domain of a binder, and on the
+    stability of the guard of [fix] under reduction (PTS.GuardRed).  Of
+    [signature_typed] they use the three conditions: the types of the
+    constants are types, the δ-bodies have them, and the ι of the
+    eliminator instances keeps the type of the redex. *)
+Definition typing_validity : Prop :=
+  forall S sg G t T, signature_typed S sg -> has_type S sg G t T ->
+  (exists s, T = Srt s) \/ (exists s, has_type S sg G T (Srt s)).
+
+Theorem typing_validity_holds : typing_validity.
+Proof. intros S sg G t T Hsig H. exact (validity S sg Hsig G t T H). Qed.
+
+Definition subject_reduction : Prop :=
+  forall S sg G t u T, signature_typed S sg -> has_type S sg G t T -> red sg t u ->
+  has_type S sg G u T.
+
+Theorem subject_reduction_holds : subject_reduction.
+Proof. intros S sg G t u T Hsig H Hr. exact (subject_red S sg Hsig G t u T H Hr). Qed.
+
+(** The annotated kernel is sound for the declarative PTS rules, in a
+    type-correct signature.  The checker trusts the types of constants:
+    with [c : (tt → tt) → Bool] it accepts [c (λx. x)], which the
+    declarative rules reject, since [T_Lam] needs [tt → tt] to be a type
+    (MLTT/Constants.v).  A [match] is checked against types the kernel
+    builds from a description without checking them, so two more
+    premises: when constants are on, the table is full, and the
+    constructors of a type have distinct names.  Without the first, a
+    table with a top sort □ accepts the motive [λ_. ∗ ⇓ Π_:D. □], whose
+    type has no type; without the second, the branch of a second
+    constructor named [c] is checked against fields that nothing types
+    (PTS.BidirSound).  The predicative hierarchies are full
+    (Configs.Predicative), and the registration of a declaration refuses
+    two constructors with one name. *)
+Definition bidir_declarative_sound : Prop :=
+  forall S sg G t A, signature_typed S sg -> (spec_decls S = true -> full_table S) ->
+  ctors_distinct sg -> bwf_ctx S sg G -> synth S sg G t A ->
+  wf_ctx S sg G /\ has_type S sg G t A.
+
+Theorem bidir_declarative_sound_holds : bidir_declarative_sound.
+Proof. intros S sg G t A Hsig Hfull Hdist HG H. exact (synth_sound S sg Hsig Hfull Hdist G t A HG H). Qed.
+
+(** ** Open obligations
+
+    Stated, not proved.  Each is a separate task, and none is a condition
+    of the executable kernel of level 1. *)
 
 (** Progress for normal order: a well-typed term never gets stuck, in a
     type-correct signature.  An ill-typed δ-body breaks it: with
@@ -216,15 +305,6 @@ Definition pi_injective : Prop :=
     the stuck [tt true] (MLTT/Constants.v). *)
 Definition progress : Prop :=
   forall S sg G t A, signature_typed S sg -> bwf_ctx S sg G -> synth S sg G t A -> ~ stuck sg t.
-
-(** The annotated kernel is sound for the declarative PTS rules, in a
-    type-correct signature.  The checker trusts the types of constants:
-    with [c : (tt → tt) → Bool] it accepts [c (λx. x)], which the
-    declarative rules reject, since [T_Lam] needs [tt → tt] to be a type
-    (MLTT/Constants.v). *)
-Definition bidir_declarative_sound : Prop :=
-  forall S sg G t A, signature_typed S sg -> bwf_ctx S sg G -> synth S sg G t A ->
-  wf_ctx S sg G /\ has_type S sg G t A.
 
 (** Progress for call-by-value evaluation: a well-typed closed program
     of a type-correct signature does not get stuck, whatever the budget.
@@ -243,7 +323,8 @@ Definition strict_sub_well_founded : Prop :=
 
 (** The other answers of [convert]: [ConvDifferent] really means that the
     terms are not convertible, and convertible terms with normal forms are
-    found equal with enough fuel.  Both rest on confluence. *)
+    found equal with enough fuel.  Both rest on confluence, proved
+    above. *)
 Definition convert_different_sound : Prop :=
   forall sg fuel t u, convert sg fuel t u = ConvDifferent -> ~ conv sg t u.
 

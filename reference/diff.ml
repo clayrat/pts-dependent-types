@@ -46,13 +46,46 @@ let equal label native extracted =
    native one and the extracted one, empty by default. *)
 let empty = (N.empty_signature, X.sig_empty)
 
+(* [infer_spine] alone, in a context taken as checked: [run_infer_spine_open]
+   of the reference, which erasure-cic uses, against [run_answer (infer_spine …)].
+   On the extract, besides: an accepted answer has one type per prefix of the
+   application (proved as [infer_spine_typed]), and its first type, or its
+   refusal, is the answer of [infer] alone (stated by Check.v).  The runs of
+   the reference without the trace give the same answers. *)
+let check_infer_spine_open ?(sg = empty) name xspec nspec fuel gamma term =
+  let nsg, xsg = sg in
+  let ngamma = List.map term_of_extracted gamma in
+  let nterm = term_of_extracted term in
+  let events, result = N.run_infer_spine_open ~sg:nsg nspec fuel ngamma nterm in
+  let native =
+    List.map event_to_extracted events, answer_to_extracted (List.map term_to_extracted) result in
+  let extracted = X.run_answer (X.infer_spine xspec xsg fuel gamma term) in
+  equal name native extracted;
+  equal (name ^ "/answer") result (N.infer_spine_open_answer ~sg:nsg nspec fuel ngamma nterm);
+  let rec prefixes = function X.App (f, _) -> 1 + prefixes f | _ -> 1 in
+  let first = match snd extracted with
+    | X.Accepted (ty :: _) -> X.Accepted ty
+    | X.Accepted [] -> failwith ("infer_spine accepts no type: " ^ name)
+    | X.Rejected e -> X.Rejected e
+    | X.Undecided t -> X.Undecided t
+  in
+  (match snd extracted with
+   | X.Accepted tys -> equal (name ^ "/prefixes") (prefixes term) (List.length tys)
+   | _ -> ());
+  equal (name ^ "/first") first (snd (X.run_answer (X.infer xspec xsg fuel gamma term)));
+  equal (name ^ "/first/answer") first
+    (answer_to_extracted term_to_extracted (N.infer_open_answer ~sg:nsg nspec fuel ngamma nterm))
+
+(* Every inferred term is also run through [infer_spine] in the same
+   context, taken as checked. *)
 let check_infer ?(sg = empty) name xspec nspec fuel gamma term =
   let nsg, xsg = sg in
   let ngamma = List.map term_of_extracted gamma in
   let nterm = term_of_extracted term in
   let events, result = N.run_infer ~sg:nsg nspec fuel ngamma nterm in
   let native = List.map event_to_extracted events, answer_to_extracted term_to_extracted result in
-  equal name native (X.run_infer xspec xsg fuel gamma term)
+  equal name native (X.run_infer xspec xsg fuel gamma term);
+  check_infer_spine_open ~sg (name ^ "/spine") xspec nspec fuel gamma term
 
 (* [infer] alone, in a context taken as checked: [run_infer_open] of the
    reference, which erasure-cic uses, against [run_answer (infer …)]. *)
@@ -62,7 +95,8 @@ let check_infer_open ?(sg = empty) name xspec nspec fuel gamma term =
   let nterm = term_of_extracted term in
   let events, result = N.run_infer_open ~sg:nsg nspec fuel ngamma nterm in
   let native = List.map event_to_extracted events, answer_to_extracted term_to_extracted result in
-  equal name native (X.run_answer (X.infer xspec xsg fuel gamma term))
+  equal name native (X.run_answer (X.infer xspec xsg fuel gamma term));
+  equal (name ^ "/answer") result (N.infer_open_answer ~sg:nsg nspec fuel ngamma nterm)
 
 (* eval_src of the reference against the extract, on a native term and the
    extracted one, at several budgets. *)
@@ -192,6 +226,23 @@ let () =
         extracted native fuel id_applied_ctx id_applied;
       check_infer (system ^ "/bad-context/" ^ string_of_int fuel)
         extracted native fuel [BTrue] (Var 0);
+      (* Spines in [a : A, A : s], with [s] the sort ∗ of the system or
+         else Type₀: complete, refused at the last argument, with a head
+         that is not a function, and needing fuel at an argument (checked
+         against the β-redex [(λX. X) A]) or at the head (whose type
+         unfolds to a Π only after a β-step). *)
+      let s = if extracted.spec_sort Star then Star else Univ 0 in
+      let id_s = Ann (Lam (Lam (Var 0)), Pi (Srt s, Pi (Var 0, Var 1))) in
+      let beta f = App (Ann (Lam f, Pi (Srt s, Srt s)), Var 1) in
+      List.iter (fun (name, term) ->
+        check_infer (system ^ "/spine/" ^ name ^ "/" ^ string_of_int fuel)
+          extracted native fuel [Var 0; Srt s] term) [
+        "full", App (App (id_s, Var 1), Var 0);
+        "last argument", App (App (id_s, Var 1), Var 1);
+        "not a function", App (App (Var 0, Var 0), Var 0);
+        "argument needs fuel", App (App (id_s, beta (Var 0)), Var 0);
+        "head needs fuel", App (Ann (Lam (Var 0), beta (Pi (Var 0, Var 1))), Var 0);
+      ];
       check_infer_open (system ^ "/open-context/infer-open/" ^ string_of_int fuel)
         extracted native fuel id_applied_ctx id_applied;
       check_infer_open (system ^ "/bad-context/infer-open/" ^ string_of_int fuel)

@@ -356,3 +356,80 @@ Arguments forall_red_map {sg}.
 Arguments red_list_refl {sg}.
 Arguments red_erase {sg}.
 Arguments erase_conv {sg}.
+
+(** ** Conversion of lists, spines and Π-types *)
+
+Lemma forall2_red_trans : forall sg l1 l2 l3,
+  Forall2 (red sg) l1 l2 -> Forall2 (red sg) l2 l3 -> Forall2 (red sg) l1 l3.
+Proof.
+  intros sg l1 l2 l3 H12. revert l3.
+  induction H12 as [|a b xs ys Hab _ IH]; intros l3 H23; inversion H23; subst; constructor.
+  - eapply rt_trans; eassumption.
+  - apply IH. assumption.
+Qed.
+
+Lemma forall2_conv_sym : forall sg l l', Forall2 (conv sg) l l' -> Forall2 (conv sg) l' l.
+Proof. intros sg l l' H. induction H; constructor; [apply conv_sym; assumption | assumption]. Qed.
+
+Lemma forall2_conv_trans : forall sg l1 l2 l3,
+  Forall2 (conv sg) l1 l2 -> Forall2 (conv sg) l2 l3 -> Forall2 (conv sg) l1 l3.
+Proof.
+  intros sg l1 l2 l3 H12. revert l3.
+  induction H12 as [|a b xs ys Hab _ IH]; intros l3 H23; inversion H23; subst; constructor.
+  - eapply conv_trans; eassumption.
+  - apply IH. assumption.
+Qed.
+
+Lemma forall2_conv_refl : forall sg l, Forall2 (conv sg) l l.
+Proof. intros sg l. induction l; constructor; [apply conv_refl | assumption]. Qed.
+
+Lemma forall2_conv_map : forall sg (f g : term -> term) l, (forall v, conv sg (f v) (g v)) ->
+  Forall2 (conv sg) (map f l) (map g l).
+Proof. intros sg f g l H. induction l as [|v l IH]; constructor; [apply H | exact IH]. Qed.
+
+Lemma conv_ctx : forall sg (C : term -> term), (forall a b, red1 sg a b -> red1 sg (C a) (C b)) ->
+  forall a b, conv sg a b -> conv sg (C a) (C b).
+Proof.
+  intros sg C HC a b H. induction H.
+  - apply rst_step, HC, H.
+  - apply rst_refl.
+  - apply rst_sym. assumption.
+  - eapply rst_trans; eassumption.
+Qed.
+
+Lemma conv_app : forall sg f f' a a', conv sg f f' -> conv sg a a' -> conv sg (App f a) (App f' a').
+Proof.
+  intros sg f f' a a' Hf Ha. eapply conv_trans.
+  - apply (conv_ctx sg (fun x => App x a)); [intros; apply R_AppFun; assumption | exact Hf].
+  - apply (conv_ctx sg (fun x => App f' x)); [intros; apply R_AppArg; assumption | exact Ha].
+Qed.
+
+Lemma conv_apps : forall sg l l' h h', conv sg h h' -> Forall2 (conv sg) l l' ->
+  conv sg (apps h l) (apps h' l').
+Proof.
+  intros sg l l' h h' Hh H. revert h h' Hh.
+  induction H as [|a a' l l' Ha _ IH]; intros h h' Hh; [exact Hh | ].
+  change (conv sg (apps (App h a) l) (apps (App h' a') l')). apply IH, conv_app; assumption.
+Qed.
+
+Lemma conv_pi : forall sg A A' B B', conv sg A A' -> conv sg B B' -> conv sg (Pi A B) (Pi A' B').
+Proof.
+  intros sg A A' B B' HA HB. eapply conv_trans.
+  - apply (conv_ctx sg (fun x => Pi x B)); [intros; apply R_PiDom; assumption | exact HA].
+  - apply (conv_ctx sg (fun y => Pi A' y)); [intros; apply R_PiCod; assumption | exact HB].
+Qed.
+
+Lemma conv_pis : forall sg Ts Ts' R R', Forall2 (conv sg) Ts Ts' -> conv sg R R' ->
+  conv sg (pis Ts R) (pis Ts' R').
+Proof. intros sg Ts Ts' R R' H HR. induction H; cbn [pis]; [exact HR | apply conv_pi; assumption]. Qed.
+
+Lemma red1_apps_head : forall sg l h h', red1 sg h h' -> red1 sg (apps h l) (apps h' l).
+Proof.
+  intros sg l. induction l as [|a l IH]; intros h h' H; [exact H | ].
+  change (red1 sg (apps (App h a) l) (apps (App h' a) l)). apply IH, R_AppFun, H.
+Qed.
+
+Lemma red1_pis_cod : forall sg Ts R R', red1 sg R R' -> red1 sg (pis Ts R) (pis Ts R').
+Proof.
+  intros sg Ts. induction Ts as [|T Ts IH]; intros R R' H; [exact H | ]. cbn [pis]. apply R_PiCod, IH, H.
+Qed.

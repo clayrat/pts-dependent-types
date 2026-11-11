@@ -96,7 +96,12 @@ ocaml reference/pts_native.ml
 It checks specification tables (with their Σ-rules and the switch of
 constants), evaluation results and traces, conversion, checker answers and
 complete typing event logs on shared examples, including the looping
-combinator and samples with Σ in every configuration. From the
+combinator and samples with Σ in every configuration. Every inferred term
+also goes through `infer_spine` (`run_infer_spine_open`, which erasure-cic
+uses), compared with the extract, with one type per prefix and its first
+type the answer of `infer`. The runs without the trace, for callers that drop
+the events (`infer_open_answer`, `infer_spine_open_answer`), give the same
+answers. From the
 repository root:
 
 ```sh

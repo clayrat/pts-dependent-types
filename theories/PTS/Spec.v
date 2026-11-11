@@ -76,6 +76,34 @@ Lemma spec_sigma_sorts : forall (S : spec) s1 s2 s3,
     spec_sort S s1 = true /\ spec_sort S s2 = true /\ spec_sort S s3 = true.
 Proof. intros S. apply (spec_wf S). Qed.
 
+(** ** Full tables
+
+    A table is full when every sort of the system has a type and every
+    pair of sorts has a Π-rule.  The [match] of the kernel builds the
+    type of its motive and of its branches from a description, without
+    checking that they are types; in a full table they are
+    (PTS.BidirSound).  The predicative hierarchies, the tables where
+    constants are on, are full (Configs.Predicative). *)
+Definition full_table (S : pts_table) : Prop :=
+  (forall s, spec_sort S s = true -> exists s', spec_axiom S s = Some s') /\
+  (forall s1 s2, spec_sort S s1 = true -> spec_sort S s2 = true ->
+     exists s3, spec_rule S s1 s2 = Some s3).
+
+(** ** Inclusion of tables
+
+    Every sort, axiom and rule of [S] is one of [S'], and so are the
+    primitives, the Σ-rules and the constants.  A judgment of [S] is then
+    one of [S'] (PTS.Monotone): the predicative hierarchy is contained in
+    the one with Prop. *)
+Record spec_le (S S' : pts_table) : Prop := {
+  sle_sort : forall s, spec_sort S s = true -> spec_sort S' s = true;
+  sle_axiom : forall s s', spec_axiom S s = Some s' -> spec_axiom S' s = Some s';
+  sle_rule : forall s1 s2 s3, spec_rule S s1 s2 = Some s3 -> spec_rule S' s1 s2 = Some s3;
+  sle_prim : forall s, spec_prim S = Some s -> spec_prim S' = Some s;
+  sle_sigma : forall s1 s2 s3, spec_sigma S s1 s2 = Some s3 -> spec_sigma S' s1 s2 = Some s3;
+  sle_decls : spec_decls S = true -> spec_decls S' = true;
+}.
+
 (** Proves [table_closed] of a concrete table by cases on sorts. *)
 Ltac solve_table_closed :=
   repeat split; intros;

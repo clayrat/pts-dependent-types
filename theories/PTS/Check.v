@@ -408,6 +408,29 @@ Section Check.
 
   Definition infer (G : ctx) (t : term) : M term := tc G t None.
 
+  (** The types of an application and of its prefixes, outermost first,
+      in the steps of [infer] on the application and in its order: the
+      head synthesized once, then each argument checked against the
+      domain of the type of the prefix before it.  Its answer is that of
+      [infer], the type of the application first; the events of the
+      arguments are left out.  Each type is synthesized for its prefix
+      ([infer_spine_typed] of PTS.CheckSound); that the first is the
+      answer of [infer] is checked by reference/diff.ml. *)
+  Fixpoint infer_spine (G : ctx) (t : term) : M (list term) :=
+    match t with
+    | App f u =>
+        let! Fs := infer_spine G f in
+        match Fs with
+        | F :: _ =>
+            let! p := as_pi f F in
+            let (A, B) := p in
+            let! _ := tc G u (Some A) in
+            tret (subst1 B u :: Fs)
+        | [] => tret []
+        end
+    | _ => let! A := infer G t in tret [A]
+    end.
+
   Definition check (G : ctx) (t T : term) : M unit :=
     let! _ := tc G t (Some T) in tret tt.
 

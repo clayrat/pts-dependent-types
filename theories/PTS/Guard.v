@@ -229,3 +229,11 @@ Section Guard.
     exists body, b = lams (S k) body /\ Guarded (entry_marks k) body.
 
 End Guard.
+
+(** Peeling the leading λ off a body keeps [allnodes]. *)
+Lemma an_peel : forall pc pk fds ms b, allnodes pc pk b = true ->
+  allnodes pc pk (snd (peel ms fds b)) = true.
+Proof.
+  intros pc pk fds. induction fds as [|fd fds IH]; intros ms b H; [exact H | ].
+  destruct b; try exact H. exact (IH _ b H).
+Qed.

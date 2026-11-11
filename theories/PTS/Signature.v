@@ -719,3 +719,112 @@ Proof.
   intros sg t. rewrite spine_iota_head. unfold full_spine, at_arity.
   destruct (head_arity sg (spine_head t)); reflexivity.
 Qed.
+
+(** ** Closedness and names of declarations *)
+
+Lemma closed_above_pis : forall As B k,
+  closed_above k (pis As B) = tele_closed k As && closed_above (k + length As) B.
+Proof.
+  induction As as [|A As IH]; intros B k; cbn [pis tele_closed length].
+  - rewrite Nat.add_0_r. reflexivity.
+  - cbn [closed_above]. rewrite IH, Nat.add_succ_r, andb_assoc. reflexivity.
+Qed.
+
+Lemma tele_closed_app : forall As Bs k,
+  tele_closed k (As ++ Bs) = tele_closed k As && tele_closed (k + length As) Bs.
+Proof.
+  induction As as [|A As IH]; intros Bs k; cbn [app tele_closed length].
+  - rewrite Nat.add_0_r. reflexivity.
+  - rewrite IH, Nat.add_succ_r, andb_assoc. reflexivity.
+Qed.
+
+Lemma field_types_length : forall D p fs l, length (field_types D p l fs) = length fs.
+Proof. intros D p fs. induction fs as [|fd fs IH]; intros l; cbn; [reflexivity | now rewrite IH]. Qed.
+
+(** The field at position [l] lies under the parameters and the [l]
+    fields before it. *)
+Lemma field_types_closed : forall D p fs l,
+  fields_closed (p + l) fs = true -> tele_closed (p + l) (field_types D p l fs) = true.
+Proof.
+  intros D p fs. induction fs as [|fd fs IH]; intros l H; [reflexivity | ].
+  cbn [fields_closed] in H. apply andb_prop in H as [Hf H].
+  cbn [field_types tele_closed]. apply andb_true_intro. split.
+  - destruct fd as [A | Bs vs]; cbn [field_type field_closed] in *; [exact Hf | ].
+    apply andb_prop in Hf as [HB Hv].
+    rewrite closed_above_pis, HB. cbn [andb]. rewrite closed_above_apps. cbn [closed_above andb].
+    rewrite forallb_app, vars_closed by lia. exact Hv.
+  - rewrite <- Nat.add_succ_r. apply IH. rewrite Nat.add_succ_r. exact H.
+Qed.
+
+Lemma find_elim_closed : forall es D s A act,
+  entries_closed es = true -> find_elim es D s = Some (A, act) -> closed A = true.
+Proof.
+  induction es as [|e es IH]; intros D s A act Hc H; [discriminate H | ].
+  cbn in Hc. apply andb_prop in Hc as [He Hc].
+  destruct e as [ | D' s' A' act' | ]; cbn in H; try exact (IH _ _ _ _ Hc H).
+  destruct (String.eqb D' D && sort_eqb s' s); [injection H as <- _; exact He | exact (IH _ _ _ _ Hc H)].
+Qed.
+
+(** The type of a constant is closed. *)
+Lemma sig_type_closed : forall sg g A, sig_type sg g = Some A -> closed A = true.
+Proof.
+  intros sg g A H. destruct g as [D | D c | D s | f]; cbn [sig_type] in H.
+  - destruct (sig_ind sg D) as [d|] eqn:E; [ | discriminate H]. injection H as <-.
+    pose proof (find_ind_closed _ _ _ (sig_wf sg) E) as Hd. unfold ind_closed in Hd. cbv zeta in Hd.
+    apply andb_prop in Hd as [Hd _]. apply andb_prop in Hd as [Hp Hi].
+    unfold closed, ind_type. rewrite closed_above_pis, tele_closed_app, Hp. cbn [Nat.add andb].
+    rewrite Hi. reflexivity.
+  - destruct (sig_ind sg D) as [d|] eqn:E; [ | discriminate H].
+    destruct (find_ctor (ind_ctors d) c) as [[i cd]|] eqn:Ec; [ | discriminate H].
+    injection H as <-. cbn [snd].
+    pose proof (find_ind_closed _ _ _ (sig_wf sg) E) as Hd. unfold ind_closed in Hd. cbv zeta in Hd.
+    apply andb_prop in Hd as [Hd Hcs]. apply andb_prop in Hd as [Hp _].
+    pose proof (find_ctor_closed _ _ _ _ _ Hcs Ec) as Hcd. unfold ctor_closed in Hcd.
+    apply andb_prop in Hcd as [Hf Hidx].
+    pose proof (field_types_closed (ind_name d) (length (ind_params d)) (ctor_fields cd) 0) as Hft.
+    rewrite Nat.add_0_r in Hft.
+    unfold closed, ctor_type. cbv zeta.
+    rewrite closed_above_pis, tele_closed_app, Hp. cbn [Nat.add andb].
+    rewrite (Hft Hf), length_app, field_types_length. cbn [andb].
+    rewrite closed_above_apps, forallb_app, vars_closed by lia. exact Hidx.
+  - destruct (sig_elim sg D s) as [[A' act]|] eqn:E; [ | discriminate H]. injection H as <-.
+    exact (find_elim_closed _ _ _ _ _ (sig_wf sg) E).
+  - destruct (sig_def sg f) as [[A' b]|] eqn:E; [ | discriminate H]. injection H as <-.
+    exact (proj1 (find_def_closed _ _ _ _ (sig_wf sg) E)).
+Qed.
+
+(** The description of an inductive type of the signature is closed: the
+    indices lie under the parameters, the constructors are closed. *)
+Lemma sig_ind_closed : forall sg D d, sig_ind sg D = Some d ->
+  tele_closed (length (ind_params d)) (ind_indices d) = true /\
+  forallb (ctor_closed (length (ind_params d))) (ind_ctors d) = true.
+Proof.
+  intros sg D d H. pose proof (find_ind_closed _ _ _ (sig_wf sg) H) as Hd.
+  unfold ind_closed in Hd. cbv zeta in Hd.
+  apply andb_prop in Hd as [Hd Hcs]. apply andb_prop in Hd as [_ Hi]. split; assumption.
+Qed.
+
+Lemma find_ind_name : forall es D d, find_ind es D = Some d -> ind_name d = D.
+Proof.
+  induction es as [|e es IH]; intros D d H; [discriminate H | ].
+  destruct e as [d'| | ]; cbn in H; try exact (IH _ _ H).
+  destruct (String.eqb (ind_name d') D) eqn:E; [injection H as <-; apply String.eqb_eq, E | exact (IH _ _ H)].
+Qed.
+
+Lemma sig_ind_name : forall sg D d, sig_ind sg D = Some d -> ind_name d = D.
+Proof. intros sg D d H. exact (find_ind_name _ _ _ H). Qed.
+
+Lemma find_ctor_name : forall cs c i cd, find_ctor cs c = Some (i, cd) -> ctor_name cd = c.
+Proof.
+  induction cs as [|cd' cs IH]; intros c i cd H; [discriminate H | ]. cbn [find_ctor] in H.
+  destruct (String.eqb (ctor_name cd') c) eqn:E; [injection H as _ <-; apply String.eqb_eq, E | ].
+  destruct (find_ctor cs c) as [[i' cd'']|] eqn:Ec; [ | discriminate H].
+  cbn [option_map] in H. injection H as _ <-. exact (IH _ _ _ Ec).
+Qed.
+
+Lemma sig_type_ind : forall sg D d, sig_ind sg D = Some d -> sig_type sg (Ind D) = Some (ind_type d).
+Proof. intros sg D d Hd. cbn [sig_type]. rewrite Hd. reflexivity. Qed.
+
+Lemma case_branch_type_shape : forall d ps c, exists Ts n l a,
+  forall Q, case_branch_type d ps Q c = pis Ts (apps (lift n Q) (l ++ [a])).
+Proof. intros d ps c. unfold case_branch_type. cbv zeta. do 4 eexists. intros Q. reflexivity. Qed.

@@ -186,10 +186,18 @@ val run_check : ?sg:signature -> spec -> int -> ctx -> term -> term -> event lis
 
 (* [infer] of Check.v alone, in a context taken as checked: the types of
    subterms that erasure asks for. *)
-
-(* [infer] of Check.v alone, in a context taken as checked: the types of
-   subterms that erasure asks for. *)
 val run_infer_open : ?sg:signature -> spec -> int -> ctx -> term -> event list * term answer
+
+(* [infer_spine] of Check.v, in the same context: the types of an
+   application and of its prefixes, outermost first, the head inferred
+   once. *)
+val run_infer_spine_open : ?sg:signature -> spec -> int -> ctx -> term -> event list * term list answer
+
+(* The answers of [run_infer_open] and [run_infer_spine_open] alone, for
+   callers that drop the events, as erasure does: the run keeps no log, so
+   the terms of its events are not retained until its end. *)
+val infer_open_answer : ?sg:signature -> spec -> int -> ctx -> term -> term answer
+val infer_spine_open_answer : ?sg:signature -> spec -> int -> ctx -> term -> term list answer
 
 (** {1 Call-by-value evaluation} *)
 

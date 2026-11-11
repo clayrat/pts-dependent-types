@@ -49,7 +49,7 @@ Extraction "deptypes.ml"
   lambda_star system_u system_u_minus predicative pure_predicative u_to_univ
   coc predicative_prop
   classify normalize_trace normalize whnf convert
-  infer check run_infer run_check
+  infer infer_spine check run_infer run_check
   id_ty id_tm id_applied_ctx id_applied star_box_ctx star_box
   type_family large_elim_ty self_app raw_omega
   joinable looping looping_ty looping_applied looping_fuel unfolding_fuel unfolds_to

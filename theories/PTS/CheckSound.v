@@ -311,6 +311,39 @@ Section Sound.
     infer S sg fuel G t log = (log', Ok A) -> S ;; G ⊢ t ⇑ A.
   Proof. intros G t. apply (proj1 (tc_sound t G)). Qed.
 
+  (** The answer of [infer_spine] types the application and each of its
+      prefixes, outermost first: one type per prefix ([spine_prefixes]),
+      so it is never empty and has one more type than the arguments. *)
+  Theorem infer_spine_typed : forall t G log log' Ts,
+    infer_spine S sg fuel G t log = (log', Ok Ts) ->
+    Forall2 (fun p T => S ;; G ⊢ p ⇑ T) (spine_prefixes t) Ts.
+  Proof.
+    induction t; intros G log log' Ts H; cbn [infer_spine spine_prefixes] in H |- *;
+      try (tbind_in H A HA; apply tret_ok in H; subst Ts;
+           constructor; [exact (infer_sound _ _ _ _ _ HA) | constructor]).
+    tbind_in H Fs HFs. apply IHt1 in HFs.
+    destruct (spine_prefixes_hd t1) as [ps E]. rewrite E in HFs |- *.
+    inversion HFs as [| ? F ? Fs' HF HFs']; subst Fs.
+    tbind_in H p Hp. destruct p as [A B]. tbind_in H u Hu. apply tret_ok in H. subst Ts.
+    apply as_pi_ok in Hp. apply (proj2 (tc_sound t2 G)) in Hu as [Hu _].
+    constructor; [eapply S_App; [exact HF | exact Hp | exact Hu] | exact HFs].
+  Qed.
+
+  Corollary infer_spine_length : forall t G log log' Ts,
+    infer_spine S sg fuel G t log = (log', Ok Ts) -> length Ts = Datatypes.S (length (spine_args t)).
+  Proof.
+    intros t G log log' Ts H. rewrite <- spine_prefixes_length.
+    symmetry. exact (Forall2_length (infer_spine_typed _ _ _ _ _ H)).
+  Qed.
+
+  (** The type of the application, the first of the answer. *)
+  Corollary infer_spine_sound : forall t G log log' A As,
+    infer_spine S sg fuel G t log = (log', Ok (A :: As)) -> S ;; G ⊢ t ⇑ A.
+  Proof.
+    intros t G log log' A As H. apply infer_spine_typed in H.
+    destruct (spine_prefixes_hd t) as [ps E]. rewrite E in H. inversion H. assumption.
+  Qed.
+
   Corollary check_sound : forall G t T log log' u,
     check S sg fuel G t T log = (log', Ok u) -> S ;; G ⊢ t ⇓ T.
   Proof.
